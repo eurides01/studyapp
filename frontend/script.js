@@ -35,10 +35,12 @@ document.addEventListener('DOMContentLoaded', () => {
     // ===== 3. SELETORES GERAIS =====
     const authScreen = document.getElementById('auth-screen');
     const navBar = document.querySelector('.navbar');
-    const mainContainer = document.querySelector('.container'); // Ajuste se seu HTML usar <main> direto
+    const mainContainer = document.querySelector('.container');
     const modalBackdrop = document.getElementById('modal-backdrop');
     const pages = document.querySelectorAll('.page');
     const navLinks = document.querySelectorAll('.nav-link');
+    
+    // SELETORES DO MENU MOBILE
     const menuToggle = document.getElementById('menu-toggle');
     const navLinksContainer = document.querySelector('.nav-links');
 
@@ -48,7 +50,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if(authToken) {
             authScreen.style.display = 'none';
             navBar.style.display = 'flex';
-            // Garante que o container principal apareça
             if(mainContainer) mainContainer.style.display = 'block';
             
             // Controle do botão Admin
@@ -72,7 +73,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const handleAuth = async (endpoint) => {
         const email = document.getElementById('login-email').value;
         const password = document.getElementById('login-password').value;
-        const name = "Estudante"; // Futuramente pode vir de um input
+        const name = "Estudante"; 
 
         if(!email || !password) return alert("Preencha email e senha!");
         
@@ -124,21 +125,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 const cloudData = await res.json();
                 db = { ...db, ...cloudData };
                 
-                // Validações de estrutura para evitar erros
                 if (!db.tempoEstudos) db.tempoEstudos = [];
                 if (!db.assuntosManuais) db.assuntosManuais = [];
                 if (!db.ciclo) db.ciclo = { deck: [], disciplinasPorDia: 3, metaHoras: 4 };
                 if (!Array.isArray(db.ciclo.deck)) db.ciclo.deck = [];
 
-                // Renderiza a Home e atualiza configurações
                 renderHomePage();
                 updateSelects(); 
                 
-                // Aplica tema salvo
                 const theme = localStorage.getItem('studyAppTheme') || 'light';
                 document.body.dataset.theme = theme;
             } else if(res.status === 401) {
-                // Token expirou
                 localStorage.clear();
                 location.reload();
             }
@@ -148,7 +145,6 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const saveData = async () => {
-        // Atualização Otimista (Visual)
         updateSummaries(); 
         calculateStreakStats(); 
         renderHeatmap(); 
@@ -171,7 +167,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // ===== 6. FUNCIONALIDADES DE PERFIL E ADMIN =====
 
-    // Abrir Modal Perfil
     const btnProfile = document.getElementById('btn-profile');
     if(btnProfile) {
         btnProfile.addEventListener('click', () => {
@@ -183,7 +178,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Salvar Perfil
     const btnSaveProfile = document.getElementById('btn-save-profile');
     if(btnSaveProfile) {
         btnSaveProfile.addEventListener('click', async () => {
@@ -210,7 +204,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Deletar Conta
     const btnDelAccount = document.getElementById('btn-delete-account');
     if(btnDelAccount) {
         btnDelAccount.addEventListener('click', async () => {
@@ -227,7 +220,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Painel Admin
     const btnAdminPanel = document.getElementById('btn-admin-panel');
     if(btnAdminPanel) btnAdminPanel.addEventListener('click', loadAdminData);
 
@@ -289,7 +281,6 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch(e) { alert("Erro."); }
     }
 
-
     // ===== 7. FUNÇÕES AUXILIARES DE DATA E FORMATAÇÃO =====
 
     const getTodayDate = () => {
@@ -328,7 +319,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return Math.round((d2 - d1) / (1000 * 60 * 60 * 24));
     };
 
-    // ===== 8. NAVEGAÇÃO ENTRE ABAS =====
+    // ===== 8. NAVEGAÇÃO ENTRE ABAS & MENU MOBILE =====
 
     const showPage = (pageId) => {
         // Esconde todas as páginas
@@ -344,7 +335,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const targetPage = document.getElementById(pageId);
         if(targetPage) targetPage.classList.add('active');
         
-        // Fecha menu mobile se estiver aberto
+        // === LÓGICA DO MENU MOBILE (FECHAR AO CLICAR) ===
+        // Se o menu mobile estiver aberto (classe 'show'), removemos ela para fechar o menu
         if(navLinksContainer) navLinksContainer.classList.remove('show');
 
         // Renderiza conteúdo específico da página
@@ -360,8 +352,13 @@ document.addEventListener('DOMContentLoaded', () => {
         showPage(l.dataset.page); 
     }));
     
-    if(menuToggle) menuToggle.addEventListener('click', () => navLinksContainer.classList.toggle('show'));
-
+    // === LÓGICA DO BOTÃO SANDUÍCHE ===
+    // Alterna a classe 'show' para exibir ou esconder o menu no celular
+    if(menuToggle) {
+        menuToggle.addEventListener('click', () => {
+            if(navLinksContainer) navLinksContainer.classList.toggle('show');
+        });
+    }
 
     // ===== 9. RENDERIZAÇÃO DA HOME (DASHBOARD) =====
 
