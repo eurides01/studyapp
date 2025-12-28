@@ -20,6 +20,9 @@ document.addEventListener('DOMContentLoaded', () => {
     let charts = { acertos: null, tempo: null, cobertura: null };
     const audioAlarm = document.getElementById('timer-sound');
     
+    // Flag para saber se é registro manual legado
+    let isLegacyRegistration = false;
+    
     // Estado do Timer
     let timer = {
         interval: null, running: false, mode: 'pomodoro', phase: 'focus',
@@ -36,8 +39,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const menuToggle = document.getElementById('menu-toggle');
     const navLinksContainer = document.querySelector('.nav-links');
     
-    const editalSelector = document.getElementById('edital-selector'); // Página de estudos
-    const navEditalSelector = document.getElementById('navbar-edital-select'); // Novo na navbar
+    const editalSelector = document.getElementById('edital-selector');
+    const navEditalSelector = document.getElementById('navbar-edital-select');
     const activeEditalBanner = document.getElementById('active-edital-banner');
 
     // ===== 4. CONTROLE DE AUTENTICAÇÃO E UI =====
@@ -48,12 +51,9 @@ document.addEventListener('DOMContentLoaded', () => {
             navBar.style.display = 'flex';
             if(mainContainer) mainContainer.style.display = 'block';
             
-            // Controle Admin (Desktop e Mobile)
             const isAdmin = (currentUser && currentUser.role === 'admin');
-            
             const btnAdmin = document.getElementById('btn-admin-panel');
             if (btnAdmin) btnAdmin.style.display = isAdmin ? 'flex' : 'none';
-            
             const btnAdminMobile = document.getElementById('mobile-btn-admin');
             if (btnAdminMobile) btnAdminMobile.style.display = isAdmin ? 'flex' : 'none';
 
@@ -89,10 +89,7 @@ document.addEventListener('DOMContentLoaded', () => {
             } else {
                 alert(data.msg || "Erro ao conectar.");
             }
-        } catch(err) {
-            console.error(err);
-            alert("Erro de conexão.");
-        }
+        } catch(err) { console.error(err); alert("Erro de conexão."); }
     };
 
     const btnLogin = document.getElementById('btn-login');
@@ -100,7 +97,6 @@ document.addEventListener('DOMContentLoaded', () => {
     if (btnLogin) btnLogin.addEventListener('click', () => handleAuth('login'));
     if (btnRegister) btnRegister.addEventListener('click', () => handleAuth('register'));
     
-    // Logout (Função Comum)
     const performLogout = () => {
         localStorage.removeItem('token');
         localStorage.removeItem('user');
@@ -108,7 +104,6 @@ document.addEventListener('DOMContentLoaded', () => {
         location.reload();
     };
 
-    // Vincular botões de logout (Desktop e Mobile)
     document.getElementById('btn-logout').addEventListener('click', performLogout);
     document.getElementById('mobile-btn-logout').addEventListener('click', (e) => { e.preventDefault(); performLogout(); });
 
@@ -122,9 +117,8 @@ document.addEventListener('DOMContentLoaded', () => {
             if(res.ok) {
                 const cloudData = await res.json();
                 
-                // Migração Legado
-                if (cloudData.disciplinas && (!cloudData.editais || cloudData.editais.length === 0)) {
-                    console.log("Migrando dados antigos...");
+                // MIGRACAO
+                if (cloudData.disciplinas && cloudData.disciplinas.length > 0 && (!cloudData.editais || cloudData.editais.length === 0)) {
                     const defaultEdital = {
                         id: 'default-edital',
                         nome: 'Meu Edital',
@@ -146,14 +140,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (!db.tempoEstudos) db.tempoEstudos = [];
                 if (!db.assuntosManuais) db.assuntosManuais = [];
                 
-                if (db.editais.length === 0) {
-                    db.editais.push({ id: Date.now().toString(), nome: 'Meu Edital', disciplinas: [], ciclo: { deck: [], disciplinasPorDia: 3, metaHoras: 4 } });
-                    saveData();
-                }
-
-                if (!currentEditalId || !db.editais.find(e => e.id === currentEditalId)) {
-                    currentEditalId = db.editais[0].id;
-                    localStorage.setItem('lastEditalId', currentEditalId);
+                if (db.editais.length > 0) {
+                    if (!currentEditalId || !db.editais.find(e => e.id === currentEditalId)) {
+                        currentEditalId = db.editais[0].id;
+                        localStorage.setItem('lastEditalId', currentEditalId);
+                    }
+                } else {
+                    currentEditalId = null;
+                    localStorage.removeItem('lastEditalId');
                 }
 
                 updateEditalUI();
@@ -180,7 +174,8 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const getCurrentEdital = () => {
-        return db.editais.find(e => e.id === currentEditalId) || db.editais[0];
+        if (!currentEditalId || db.editais.length === 0) return null;
+        return db.editais.find(e => e.id === currentEditalId) || null;
     };
 
     // ===== 6. FUNÇÕES DE TEMPO E DATA =====
@@ -195,6 +190,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const formatDateBr = (dateStr) => {
         if(!dateStr) return "-";
+        if(dateStr === 'SEM_DATA') return "Data desc."; // Tratamento para sem data
         const cleanDate = dateStr.includes('T') ? dateStr.split('T')[0] : dateStr;
         const [y, m, d] = cleanDate.split('-');
         return `${d}/${m}/${y}`;
@@ -203,6 +199,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const formatDuration = (m) => `${Math.floor(m/60)}h ${m%60}m`;
     
     const addDays = (dateStr, days) => {
+        if (dateStr === 'SEM_DATA') return 'SEM_DATA';
         const cleanDate = dateStr.includes('T') ? dateStr.split('T')[0] : dateStr;
         const [y, m, d] = cleanDate.split('-').map(Number);
         const dateObj = new Date(y, m - 1, d);
@@ -214,7 +211,7 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const diffInDays = (date1Str, date2Str) => {
-        if(!date1Str || !date2Str) return 0;
+        if(!date1Str || !date2Str || date1Str === 'SEM_DATA' || date2Str === 'SEM_DATA') return 0;
         const d1 = new Date(date1Str.includes('T') ? date1Str.split('T')[0] : date1Str);
         const d2 = new Date(date2Str.includes('T') ? date2Str.split('T')[0] : date2Str);
         d1.setHours(0,0,0,0);
@@ -227,24 +224,26 @@ document.addEventListener('DOMContentLoaded', () => {
     const updateEditalUI = () => {
         const edital = getCurrentEdital();
         
-        // Função auxiliar para preencher select
         const fillSelect = (el) => {
             if(!el) return;
-            el.innerHTML = db.editais.map(e => 
-                `<option value="${e.id}" ${e.id === currentEditalId ? 'selected' : ''}>${e.nome}</option>`
-            ).join('');
+            if (db.editais.length === 0) {
+                el.innerHTML = '<option value="">Nenhum Edital</option>';
+            } else {
+                el.innerHTML = db.editais.map(e => 
+                    `<option value="${e.id}" ${e.id === currentEditalId ? 'selected' : ''}>${e.nome}</option>`
+                ).join('');
+            }
         };
 
-        // Preenche ambos os seletores (Navbar e Página de Estudos)
         fillSelect(editalSelector);
         fillSelect(navEditalSelector);
         
         const labelEdital = document.getElementById('current-edital-label');
-        if(labelEdital) labelEdital.textContent = edital.nome;
+        if(labelEdital) labelEdital.textContent = edital ? edital.nome : "Nenhum Selecionado";
     };
 
-    // Função para trocar o edital e atualizar tudo
     const handleEditalChange = (newId) => {
+        if(!newId) return;
         currentEditalId = newId;
         localStorage.setItem('lastEditalId', currentEditalId);
         updateEditalUI();
@@ -252,7 +251,6 @@ document.addEventListener('DOMContentLoaded', () => {
         showPage(activePageId);
     };
 
-    // Listeners para os dois seletores
     if(editalSelector) editalSelector.addEventListener('change', (e) => handleEditalChange(e.target.value));
     if(navEditalSelector) navEditalSelector.addEventListener('change', (e) => handleEditalChange(e.target.value));
 
@@ -286,11 +284,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const btnDelEdital = document.getElementById('btn-delete-edital');
     if(btnDelEdital) btnDelEdital.addEventListener('click', () => {
-        if(db.editais.length <= 1) return alert("Você precisa ter pelo menos um edital.");
-        if(confirm(`Tem certeza que deseja apagar o edital "${getCurrentEdital().nome}" e todas as suas configurações?`)) {
+        const edital = getCurrentEdital();
+        if(!edital) return;
+        
+        if(confirm(`Tem certeza que deseja apagar o edital "${edital.nome}"?`)) {
             db.editais = db.editais.filter(e => e.id !== currentEditalId);
-            currentEditalId = db.editais[0].id;
-            localStorage.setItem('lastEditalId', currentEditalId);
+            currentEditalId = db.editais.length > 0 ? db.editais[0].id : null;
+            
+            if(currentEditalId) localStorage.setItem('lastEditalId', currentEditalId);
+            else localStorage.removeItem('lastEditalId');
+            
             saveData();
             updateEditalUI();
             showPage('page-estudos');
@@ -307,7 +310,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         const targetPage = document.getElementById(pageId);
         if(targetPage) targetPage.classList.add('active');
-        if(navLinksContainer) navLinksContainer.classList.remove('show'); // Fecha menu mobile
+        if(navLinksContainer) navLinksContainer.classList.remove('show');
 
         updateEditalUI();
 
@@ -318,7 +321,6 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     navLinks.forEach(l => l.addEventListener('click', (e) => { 
-        // Se for link de navegação real, previne default e navega
         if(l.dataset.page) {
             e.preventDefault(); 
             showPage(l.dataset.page);
@@ -342,6 +344,16 @@ document.addEventListener('DOMContentLoaded', () => {
     const renderHomePage = () => {
         const edital = getCurrentEdital();
         updateSummaries(edital);
+        
+        if (!edital) {
+            document.getElementById('ciclo-hoje-list').innerHTML = '<p class="empty-state">Selecione ou crie um edital para começar.</p>';
+            document.getElementById('revisoes-pendentes-list').innerHTML = '<p class="empty-state">-</p>';
+            document.getElementById('dashboard-table-body').innerHTML = '<tr><td colspan="6" style="text-align:center; padding:20px;">Nenhum edital ativo.</td></tr>';
+            renderHeatmap(); 
+            calculateStreakStats(); 
+            return;
+        }
+
         renderCicloFila(edital); 
         renderRevisoesPendentes(edital);
         renderHeatmap(); 
@@ -351,10 +363,22 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const updateSummaries = (edital) => {
         const today = getTodayDate();
-        const metaHoras = edital.ciclo ? edital.ciclo.metaHoras : 4;
+        
+        const metaHoras = (edital && edital.ciclo && edital.ciclo.metaHoras) ? edital.ciclo.metaHoras : 4;
+        
+        if (!edital) {
+            document.getElementById('dash-meta-horas').textContent = `0h 0m / ${metaHoras}h`;
+            document.getElementById('dash-tempo').textContent = "0h 0m";
+            document.getElementById('dash-acertos').textContent = "-";
+            document.getElementById('dash-revisoes').textContent = "0";
+            return;
+        }
+
         const temposEdital = filterStudiesByEdital(db.tempoEstudos);
         
         const minsHoje = temposEdital.filter(t => {
+            // Filtra SEM DATA (ignora) e compara datas
+            if(t.data === 'SEM_DATA') return false;
             const tData = t.data.includes('T') ? t.data.split('T')[0] : t.data;
             return tData === today;
         }).reduce((acc, c) => acc + c.tempoMinutos, 0);
@@ -366,6 +390,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const estudosEdital = filterStudiesByEdital(db.estudos);
         let q = 0, a = 0;
         estudosEdital.filter(e => {
+            if(e.data === 'SEM_DATA') return false;
             const eData = e.data.includes('T') ? e.data.split('T')[0] : e.data;
             return eData === today;
         }).forEach(e => { q += e.total; a += e.acertos; });
@@ -376,6 +401,7 @@ document.addEventListener('DOMContentLoaded', () => {
         let pends = 0;
         estudosEdital.forEach(e => {
             if(e.revisoes) e.revisoes.forEach(r => { 
+                if(r.data === 'SEM_DATA') return;
                 const rData = r.data.includes('T') ? r.data.split('T')[0] : r.data;
                 if(!r.concluida && rData <= today) pends++; 
             });
@@ -384,7 +410,11 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const calculateStreakStats = () => {
-        const rawDates = new Set([ ...db.estudos.map(e => e.data), ...db.tempoEstudos.map(t => t.data) ]);
+        // Filtra SEM_DATA antes de processar
+        const rawDates = new Set([ 
+            ...db.estudos.filter(e => e.data !== 'SEM_DATA').map(e => e.data), 
+            ...db.tempoEstudos.filter(t => t.data !== 'SEM_DATA').map(t => t.data) 
+        ]);
         const sanitizedDates = new Set();
         rawDates.forEach(d => { if(d) sanitizedDates.add(d.includes('T') ? d.split('T')[0] : d); });
         const sortedDates = [...sanitizedDates].sort();
@@ -430,6 +460,7 @@ document.addEventListener('DOMContentLoaded', () => {
         
         const dataMap = {};
         db.tempoEstudos.forEach(t => { 
+            if(t.data === 'SEM_DATA') return;
             const d = t.data.includes('T') ? t.data.split('T')[0] : t.data;
             dataMap[d] = (dataMap[d] || 0) + t.tempoMinutos; 
         });
@@ -481,7 +512,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const renderCicloFila = (edital) => {
         const container = document.getElementById('ciclo-hoje-list');
-        if(!edital || !edital.ciclo) return;
+        if(!edital || !edital.ciclo) {
+            container.innerHTML = '<p class="empty-state">Sem edital ativo.</p>';
+            return;
+        }
         
         const deck = edital.ciclo.deck || [];
         const limit = edital.ciclo.disciplinasPorDia || 3;
@@ -494,6 +528,7 @@ document.addEventListener('DOMContentLoaded', () => {
         container.innerHTML = visibleItems.map((disc, index) => {
             const today = getTodayDate();
             const studiedToday = db.tempoEstudos.some(t => {
+                if(t.data === 'SEM_DATA') return false;
                 const tData = t.data.includes('T') ? t.data.split('T')[0] : t.data;
                 return tData === today && t.disciplina === disc && t.tipo !== 'revisao' && (!t.editalId || t.editalId === edital.id);
             });
@@ -504,6 +539,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const rotateCycle = (disc) => {
         const edital = getCurrentEdital();
+        if(!edital) return;
         const deck = edital.ciclo.deck; 
         const idx = deck.indexOf(disc);
         if (idx > -1) { deck.splice(idx, 1); deck.push(disc); saveData(); }
@@ -511,12 +547,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const renderRevisoesPendentes = (edital) => {
         const list = document.getElementById('revisoes-pendentes-list');
+        if(!edital) return;
         const today = getTodayDate();
         const estudosEdital = filterStudiesByEdital(db.estudos);
         
         let html = '';
         estudosEdital.forEach(e => {
             if(e.revisoes) e.revisoes.forEach((r, idx) => {
+                if(r.data === 'SEM_DATA') return;
                 const rData = r.data.includes('T') ? r.data.split('T')[0] : r.data;
                 if(!r.concluida && rData <= today) {
                     html += `<div style="display:flex; justify-content:space-between; padding:10px; border-bottom:1px solid var(--border-color); align-items:center;"><div><strong>${e.disciplina}</strong><br><small style="color:var(--text-light)">${e.assunto} (${idx===0?'1d':idx===1?'7d':'30d'})</small></div><button class="btn-success btn-sm" onclick="openRevisaoModal('${e.id}', ${idx})"><i class="ph ph-check"></i></button></div>`;
@@ -585,7 +623,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const list = document.getElementById('disciplinas-list'); list.innerHTML = '';
         const edital = getCurrentEdital();
         
-        if (!edital) return;
+        if (!edital) { list.innerHTML = '<div class="empty-state">Selecione ou crie um novo edital.</div>'; return; }
 
         if (edital.disciplinas.length === 0) { list.innerHTML = '<div class="empty-state">Nenhuma disciplina neste edital.</div>'; return; }
         
@@ -613,6 +651,11 @@ document.addEventListener('DOMContentLoaded', () => {
                     const perc = q > 0 ? Math.round((ac/q)*100) : 0; 
                     const time = subTimes.reduce((acc, t) => acc + t.tempoMinutos, 0);
                     
+                    // Se já estiver marcado, o clique remove. Se não, o clique abre o modal.
+                    const clickAction = isStudied 
+                        ? `toggleManualStudy('${d.nome}', '${a}')` 
+                        : `openRegistroModal('${d.nome}', '${a}', true)`; // True indica que veio do clique de completar
+
                     return `<li class="assunto-item ${studiedClass}">
                         <div class="assunto-content"><span>${a}</span></div>
                         <div class="assunto-stats">
@@ -622,7 +665,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             ${time > 0 ? `<span class="stat-pill"><i class="ph ph-timer"></i> <strong>${time}m</strong></span>` : ''}
                         </div>
                         <div class="assunto-actions">
-                            <button class="icon-action-btn btn-check-manual ${btnActive}" onclick="toggleManualStudy('${d.nome}', '${a}')" title="Marcar Concluído"><i class="ph ph-check"></i></button>
+                            <button class="icon-action-btn btn-check-manual ${btnActive}" onclick="${clickAction}" title="${isStudied ? 'Desmarcar' : 'Concluir e Registrar'}"><i class="ph ph-check"></i></button>
                             <button class="icon-action-btn btn-trash" onclick="delAss('${d.id}','${a}')" title="Excluir Assunto"><i class="ph ph-trash"></i></button>
                         </div>
                     </li>`;
@@ -639,12 +682,12 @@ document.addEventListener('DOMContentLoaded', () => {
         const edital = getCurrentEdital();
         const index = db.assuntosManuais.findIndex(m => m.disciplina === disciplina && m.assunto === assunto && m.editalId === edital.id);
         
-        if (index > -1) { db.assuntosManuais.splice(index, 1); }
-        else { db.assuntosManuais.push({ disciplina, assunto, editalId: edital.id }); }
-        
-        saveData(); 
-        renderDisciplinas(); 
-        if(document.getElementById('page-estatisticas').classList.contains('active')) renderEstatisticas();
+        if (index > -1) { 
+            db.assuntosManuais.splice(index, 1); 
+            saveData(); 
+            renderDisciplinas(); 
+            if(document.getElementById('page-estatisticas').classList.contains('active')) renderEstatisticas();
+        }
     };
 
     window.delDisc = (id) => { 
@@ -677,9 +720,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const btnOpenAddDisc = document.getElementById('btn-open-add-disc');
     if(btnOpenAddDisc) btnOpenAddDisc.addEventListener('click', () => { 
+        const edital = getCurrentEdital();
+        if (!edital) return alert("Crie um edital primeiro!");
+        
         document.getElementById('new-disc-name').value = ''; 
         document.getElementById('new-disc-subjects').value = ''; 
-        document.getElementById('add-disc-edital-name').textContent = getCurrentEdital().nome;
+        document.getElementById('add-disc-edital-name').textContent = edital.nome;
         modalBackdrop.classList.add('active'); 
         document.getElementById('add-disciplina-modal').classList.add('active'); 
     });
@@ -689,6 +735,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const nome = document.getElementById('new-disc-name').value.trim(); 
         const subjectsText = document.getElementById('new-disc-subjects').value;
         const edital = getCurrentEdital();
+        
+        if (!edital) return alert("Crie um edital primeiro!");
 
         if (!nome) return alert("Digite o nome."); 
         if (edital.disciplinas.some(d => d.nome.toLowerCase() === nome.toLowerCase())) return alert("Já existe neste edital.");
@@ -708,6 +756,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const edital = getCurrentEdital();
         const container = document.getElementById('ciclo-disciplinas-selecao'); 
         
+        if(!edital) {
+            container.innerHTML = '<p class="empty-state">Sem edital ativo.</p>';
+            return;
+        }
+
         if(!edital.ciclo) edital.ciclo = { deck: [], disciplinasPorDia: 3, metaHoras: 4 };
 
         document.getElementById('config-meta-horas').value = edital.ciclo.metaHoras || 4; 
@@ -733,6 +786,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnGerarCiclo = document.getElementById('gerar-ciclo-btn');
     if(btnGerarCiclo) btnGerarCiclo.addEventListener('click', () => { 
         const edital = getCurrentEdital();
+        if(!edital) return alert("Crie um edital primeiro!");
+
         const porDia = parseInt(document.getElementById('ciclo-disciplinas-por-dia').value); 
         const metaHoras = parseInt(document.getElementById('config-meta-horas').value); 
         
@@ -751,21 +806,53 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // ===== 13. REGISTRO MANUAL =====
 
-    window.openRegistroModal = (disc = null) => {
+    // ALTERAÇÃO: Agora inicializa data e flag legado
+    window.openRegistroModal = (disc = null, assuntoPreSelecionado = null, fromListClick = false) => {
         const edital = getCurrentEdital();
+        if (!edital) return alert("Crie um edital primeiro!");
+
         const discSelectGroup = document.getElementById('reg-disciplina-select-group');
         const discSelect = document.getElementById('reg-disciplina-select');
         const discHidden = document.getElementById('reg-disciplina-hidden');
         const modalTitle = document.getElementById('reg-modal-title');
         const finalizadoCheckbox = document.getElementById('reg-finalizado');
+        const dataInput = document.getElementById('reg-data-input');
+        const semDataCheckbox = document.getElementById('reg-sem-data');
         
+        // Reset campos
         document.getElementById('reg-novo-assunto').value = ''; 
         document.getElementById('reg-questoes').value = ''; 
         document.getElementById('reg-acertos').value = ''; 
+        document.getElementById('reg-tempo').value = '';
         finalizadoCheckbox.checked = false;
         
+        // Inicializa data com hoje
+        dataInput.value = getTodayDate();
+        dataInput.disabled = false;
+        semDataCheckbox.checked = false;
+        
+        // Define se é legado (veio do clique da lista)
+        isLegacyRegistration = fromListClick; 
+        
+        if (assuntoPreSelecionado) {
+            finalizadoCheckbox.checked = true;
+        }
+
+        // Listener para o checkbox "Sem Data"
+        semDataCheckbox.onchange = (e) => {
+            dataInput.disabled = e.target.checked;
+        };
+
         if (disc) {
-            discSelectGroup.style.display = 'none'; discHidden.value = disc; modalTitle.textContent = disc; populateRegAssuntos(disc); document.getElementById('reg-tempo').value = '';
+            discSelectGroup.style.display = 'none'; 
+            discHidden.value = disc; 
+            modalTitle.textContent = disc; 
+            populateRegAssuntos(disc); 
+
+            if(assuntoPreSelecionado) {
+                const select = document.getElementById('reg-assunto-select');
+                select.value = assuntoPreSelecionado;
+            }
         } else {
             discSelectGroup.style.display = 'block'; 
             discSelect.innerHTML = edital.disciplinas.map(d => `<option value="${d.nome}">${d.nome}</option>`).join('');
@@ -799,6 +886,15 @@ document.addEventListener('DOMContentLoaded', () => {
         const assuntoSelecionado = document.getElementById('reg-assunto-select').value; 
         const finalizado = document.getElementById('reg-finalizado').checked;
         const edital = getCurrentEdital();
+        
+        // VERIFICA SE É "SEM DATA" OU DATA NORMAL
+        const semData = document.getElementById('reg-sem-data').checked;
+        let dataRegistro;
+        if(semData) {
+            dataRegistro = 'SEM_DATA';
+        } else {
+            dataRegistro = document.getElementById('reg-data-input').value || getTodayDate();
+        }
 
         let assuntoFinal = ""; if (!disc) return alert("Selecione disciplina.");
         
@@ -820,13 +916,13 @@ document.addEventListener('DOMContentLoaded', () => {
             db.estudos.push({ 
                 id: Date.now().toString(), 
                 editalId: edital.id, 
-                data: getTodayDate(), 
+                data: dataRegistro, 
                 disciplina: disc, 
                 assunto: assuntoFinal, 
                 total: totalQ, 
                 acertos: totalA, 
                 percentual: (totalA/totalQ)*100, 
-                revisoes: [{data: addDays(getTodayDate(), 1), concluida: false},{data: addDays(getTodayDate(), 7), concluida: false},{data: addDays(getTodayDate(), 30), concluida: false}] 
+                revisoes: [{data: addDays(dataRegistro, 1), concluida: false},{data: addDays(dataRegistro, 7), concluida: false},{data: addDays(dataRegistro, 30), concluida: false}] 
             }); 
         }
         
@@ -834,7 +930,7 @@ document.addEventListener('DOMContentLoaded', () => {
             db.tempoEstudos.push({ 
                 id: Date.now().toString()+'m', 
                 editalId: edital.id, 
-                data: getTodayDate(), 
+                data: dataRegistro, 
                 disciplina: disc, 
                 assunto: assuntoFinal, 
                 tempoMinutos: totalT, 
@@ -848,11 +944,20 @@ document.addEventListener('DOMContentLoaded', () => {
             } 
         }
         
-        rotateCycle(disc); 
+        // Só gira o ciclo se não for legado (não veio do clique na lista)
+        if (!isLegacyRegistration) {
+            rotateCycle(disc); 
+        }
+        
         saveData(); 
         modalBackdrop.classList.remove('active'); 
         document.getElementById('registro-modal').classList.remove('active'); 
+        
         renderHomePage(); 
+        
+        // Força atualização imediata da lista de disciplinas para mostrar os novos dados
+        renderDisciplinas();
+
         alert("Salvo!");
     });
 
@@ -860,6 +965,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const renderEstatisticas = () => {
         const edital = getCurrentEdital();
+        if (!edital) return; 
+
         const dFiltro = document.getElementById('filter-disciplina').value; 
         const ini = document.getElementById('filter-data-inicio').value; 
         const fim = document.getElementById('filter-data-fim').value;
@@ -983,7 +1090,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // ===== 16. PERFIL E ADMIN =====
 
-    // Função de Perfil
     const openProfileModal = () => {
         document.getElementById('profile-name').value = currentUser.name || '';
         document.getElementById('profile-email').value = currentUser.email || '';
@@ -992,7 +1098,6 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('profile-modal').classList.add('active');
     };
 
-    // Listeners para Botão Perfil Desktop e Mobile
     const btnProfile = document.getElementById('btn-profile');
     const btnProfileMobile = document.getElementById('mobile-btn-profile');
     if(btnProfile) btnProfile.addEventListener('click', openProfileModal);
@@ -1037,7 +1142,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Função de Admin
     async function loadAdminData() {
         try {
             const res = await fetch(`${API_URL}/admin/users`, { headers: { 'x-auth-token': authToken } });
@@ -1052,7 +1156,6 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch(e) { alert("Erro ao carregar painel admin."); }
     }
 
-    // Listeners para Admin Desktop e Mobile
     const btnAdminPanel = document.getElementById('btn-admin-panel');
     const btnAdminMobile = document.getElementById('mobile-btn-admin');
     if(btnAdminPanel) btnAdminPanel.addEventListener('click', loadAdminData);
@@ -1102,7 +1205,6 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch(e) { alert("Erro."); }
     }
     
-    // Função de Tema (com listener mobile/desktop)
     const toggleTheme = () => {
         const t = document.body.dataset.theme==='dark'?'light':'dark';
         document.body.dataset.theme=t;
@@ -1116,7 +1218,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     document.querySelectorAll('.modal-close-btn').forEach(b => b.addEventListener('click', () => { modalBackdrop.classList.remove('active'); document.querySelectorAll('.modal').forEach(m => m.classList.remove('active')); }));
     
-    // Configura tema ao carregar
     const savedTheme = localStorage.getItem('studyAppTheme');
     if(savedTheme) document.body.dataset.theme = savedTheme;
     
@@ -1133,7 +1234,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if(elConfigMeta) elConfigMeta.addEventListener('change', (e) => { 
         const val = parseInt(e.target.value); 
         const edital = getCurrentEdital();
-        if(val > 0 && edital.ciclo) { edital.ciclo.metaHoras = val; saveData(); } 
+        if(val > 0 && edital && edital.ciclo) { edital.ciclo.metaHoras = val; saveData(); } 
     });
 
     const observer = new MutationObserver((mutations) => {

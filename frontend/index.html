@@ -77,6 +77,7 @@
     </nav>
 
     <main class="container">
+        
         <section id="page-home" class="page active">
             <div class="card" style="margin-bottom: 1.5rem;">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
@@ -320,6 +321,18 @@
             <button class="modal-close-btn"><i class="ph ph-x"></i></button>
         </div>
         <div class="modal-body">
+            
+            <div class="form-group">
+                <label>Data do Estudo</label>
+                <div style="display:flex; align-items:center; gap:10px;">
+                    <input type="date" id="reg-data-input" style="font-weight:600; flex:1;">
+                    <div style="display:flex; align-items:center; gap:5px; font-size:0.9rem; background:rgba(0,0,0,0.05); padding:5px 10px; border-radius:6px;">
+                        <input type="checkbox" id="reg-sem-data" style="width:auto; cursor:pointer;">
+                        <label for="reg-sem-data" style="margin:0; cursor:pointer; white-space:nowrap; user-select:none;">Não lembro</label>
+                    </div>
+                </div>
+            </div>
+
             <div class="form-group" id="reg-disciplina-select-group" style="display:none; border-bottom:1px solid var(--border-color); padding-bottom:15px; margin-bottom:15px;">
                 <label>Qual disciplina você estudou?</label>
                 <select id="reg-disciplina-select" style="font-weight:600; color:var(--primary-color);"></select>
