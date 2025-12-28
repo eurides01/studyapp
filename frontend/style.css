@@ -62,10 +62,28 @@ h3 { margin-bottom: 1rem; font-weight: 600; color: var(--text-color); font-size:
     display: flex; justify-content: space-between; align-items: center;
     padding: 0.8rem 2rem; z-index: 1000; border-bottom: 1px solid var(--border-color);
 }
-.nav-brand { font-size: 1.4rem; font-weight: 800; color: var(--primary-color); letter-spacing: -0.5px; }
+.nav-brand { font-size: 1.4rem; font-weight: 800; color: var(--primary-color); letter-spacing: -0.5px; white-space: nowrap; }
+
+/* NOVO: Estilo do seletor da navbar */
+.nav-select {
+    padding: 6px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text-color);
+    background-color: var(--bg-color);
+    cursor: pointer;
+    max-width: 200px;
+    outline: none;
+}
+.nav-select:hover { border-color: var(--primary-color); }
+.nav-select:focus { border-color: var(--primary-color); }
+
 .nav-links { list-style: none; display: flex; gap: 2rem; }
 .nav-link { text-decoration: none; color: var(--text-light); font-weight: 500; padding: 0.5rem 0; border-bottom: 2px solid transparent; transition: all 0.2s; font-size: 0.95rem; display: flex; align-items: center; gap: 6px; }
 .nav-link:hover, .nav-link.active { color: var(--primary-color); border-bottom-color: var(--primary-color); }
+
 .nav-controls { display: flex; gap: 0.8rem; align-items: center; }
 
 .icon-btn {
@@ -79,9 +97,13 @@ h3 { margin-bottom: 1rem; font-weight: 600; color: var(--text-color); font-size:
 
 .nav-streak {
     display: flex; align-items: center; gap: 5px; font-weight: 700; color: #f59e0b;
-    background: rgba(245, 158, 11, 0.1); padding: 0.3rem 0.8rem; border-radius: 20px; font-size: 0.9rem;
+    background: rgba(245, 158, 11, 0.1); padding: 0.3rem 0.8rem; border-radius: 20px; font-size: 0.9rem; white-space: nowrap;
 }
 #menu-toggle { display: none; background: none; border: none; font-size: 1.8rem; color: var(--text-color); cursor: pointer; }
+
+/* CONTROLE DE VISIBILIDADE MOBILE/DESKTOP */
+.mobile-only { display: none; }
+.desktop-only { display: flex; }
 
 /* ===== PÁGINA ===== */
 .page { display: none; animation: fadeIn 0.3s ease-out forwards; }
@@ -306,67 +328,36 @@ button:hover { filter: brightness(0.95); transform: translateY(-1px); }
 .empty-state { text-align: center; color: var(--text-light); padding: 30px; font-style: italic; }
 
 @media (max-width: 768px) {
+    /* Menu Hamburguer Ativo */
     .nav-links { display: none; position: absolute; top: 65px; left: 0; width: 100%; background: var(--card-bg); flex-direction: column; padding: 1.5rem; box-shadow: var(--shadow); border-bottom: 1px solid var(--border-color); }
     .nav-links.show { display: flex; }
-    #menu-toggle { display: block; }
+    
+    #menu-toggle { display: flex; } /* Mostra o sanduiche */
+
+    /* CONTROLE DE VISIBILIDADE MOBILE */
+    .mobile-only { display: block; }
+    .desktop-only { display: none !important; }
+
+    /* Separador visual no menu */
+    .mobile-only.separator { height: 1px; background: var(--border-color); width: 100%; margin: 5px 0; display: block; }
+
     .dashboard-grid, .form-grid-3, .stats-grid { grid-template-columns: 1fr; }
     #timer-display { font-size: 3.5rem; }
     .nav-controls { gap: 0.5rem; }
     .icon-btn { width: 32px; height: 32px; font-size: 1rem; }
+    
+    /* Seletor diminui um pouco no mobile para caber */
+    .nav-select { max-width: 140px; } 
+
     .ciclo-item-card { flex-direction: column; align-items: flex-start; gap: 10px; }
     .ciclo-actions { width: 100%; justify-content: space-between; }
     .action-btn { flex: 1; justify-content: center; }
     .assunto-item { flex-direction: column; align-items: flex-start; gap: 8px; }
     .assunto-actions { width: 100%; justify-content: flex-end; }
     .assunto-stats { width: 100%; margin: 0; gap: 5px; }
-    /* Ajuste para o botão do timer no mobile */
     .summary-card.timer-trigger { order: -1; margin-bottom: 10px; }
 }
-/* --- RESPONSIVIDADE (MOBILE) --- */
-
-/* Por padrão (Desktop), o botão sanduíche fica invisível */
-#menu-toggle {
-    display: none;
-    /* Removemos margins manuais porque agora ele respeita o flexbox da nav-controls */
-}
-
-@media (max-width: 768px) {
-    /* 1. Mostra o botão sanduíche no celular */
-    #menu-toggle {
-        display: flex; /* Usa flex para centralizar o ícone */
-        /* Não precisa mais de margin-left: auto */
-    }
-
-    /* 2. Menu Dropdown */
-    .nav-links {
-        display: none;
-        position: absolute;
-        top: 70px;
-        left: 0;
-        width: 100%;
-        background-color: var(--card-bg);
-        flex-direction: column;
-        align-items: center;
-        padding: 20px 0;
-        border-bottom: 2px solid var(--primary-color);
-        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
-        z-index: 990; /* Ficou menor que o auth-screen */
-    }
-
-    .nav-links.show {
-        display: flex;
-        animation: slideDown 0.3s ease forwards;
-    }
-    
-    .nav-links li { margin: 10px 0; }
-    
-    /* Pequeno ajuste para garantir que os botões não fiquem colados na borda */
-    .nav-controls {
-        padding-right: 0;
-        gap: 0.5rem;
-    }
-}
-
+/* --- ANIMAÇÃO MENU --- */
 @keyframes slideDown {
     from { opacity: 0; transform: translateY(-10px); }
     to { opacity: 1; transform: translateY(0); }

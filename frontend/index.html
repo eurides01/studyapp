@@ -31,24 +31,44 @@
     <audio id="timer-sound" src="https://actions.google.com/sounds/v1/alarms/alarm_clock_short.ogg" preload="auto"></audio>
 
     <nav class="navbar">
-        <div class="nav-brand">StudyApp <i class="ph ph-rocket-launch"></i></div>
+        <div style="display:flex; align-items:center; gap:15px; flex:1;">
+            <div class="nav-brand">StudyApp <i class="ph ph-rocket-launch"></i></div>
+            
+            <select id="navbar-edital-select" class="nav-select" title="Trocar Edital">
+                </select>
+        </div>
         
         <ul class="nav-links">
             <li><a href="#" class="nav-link active" data-page="page-home"><i class="ph ph-house"></i> Dashboard</a></li>
-            <li><a href="#" class="nav-link" data-page="page-disciplinas"><i class="ph ph-book-open"></i> Disciplinas</a></li>
+            <li><a href="#" class="nav-link" data-page="page-estudos"><i class="ph ph-books"></i> Estudos</a></li>
             <li><a href="#" class="nav-link" data-page="page-ciclo"><i class="ph ph-arrows-clockwise"></i> Ciclo</a></li>
             <li><a href="#" class="nav-link" data-page="page-estatisticas"><i class="ph ph-chart-bar"></i> Estatísticas</a></li>
+
+            <li class="mobile-only separator"></li>
+            <li class="mobile-only">
+                <a href="#" id="mobile-btn-theme" class="nav-link"><i class="ph ph-moon"></i> Alternar Tema</a>
+            </li>
+            <li class="mobile-only">
+                <a href="#" id="mobile-btn-admin" class="nav-link" style="display:none; color:var(--primary-color);"><i class="ph ph-shield-check"></i> Painel Admin</a>
+            </li>
+            <li class="mobile-only">
+                <a href="#" id="mobile-btn-profile" class="nav-link"><i class="ph ph-user"></i> Meu Perfil</a>
+            </li>
+            <li class="mobile-only">
+                <a href="#" id="mobile-btn-logout" class="nav-link" style="color:var(--danger-color);"><i class="ph ph-sign-out"></i> Sair</a>
+            </li>
         </ul>
 
         <div class="nav-controls">
+            <br>
             <div class="nav-streak" title="Ofensiva (Dias Seguidos)">
                 <i class="ph ph-fire-simple"></i> <span id="nav-streak-count">0</span>
             </div>
-            <button id="theme-toggle" class="icon-btn" title="Alternar Tema"><i class="ph ph-moon"></i></button>
-            
-            <button id="btn-admin-panel" class="icon-btn" style="display:none; color: var(--primary-color); border-color:var(--primary-color);" title="Painel Admin"><i class="ph ph-shield-check"></i></button>
-            <button id="btn-profile" class="icon-btn" title="Meu Perfil"><i class="ph ph-user"></i></button>
-            <button id="btn-logout" class="icon-btn btn-danger-icon" title="Sair"><i class="ph ph-sign-out"></i></button>
+
+            <button id="theme-toggle" class="icon-btn desktop-only" title="Alternar Tema"><i class="ph ph-moon"></i></button>
+            <button id="btn-admin-panel" class="icon-btn desktop-only" style="display:none; color: var(--primary-color); border-color:var(--primary-color);" title="Painel Admin"><i class="ph ph-shield-check"></i></button>
+            <button id="btn-profile" class="icon-btn desktop-only" title="Meu Perfil"><i class="ph ph-user"></i></button>
+            <button id="btn-logout" class="icon-btn btn-danger-icon desktop-only" title="Sair"><i class="ph ph-sign-out"></i></button>
             
             <button id="menu-toggle" class="icon-btn">
                 <i class="ph ph-list"></i>
@@ -116,7 +136,7 @@
                 </div>
             </div>
             <div class="card full-width-card">
-                <h3>Resumo Geral por Disciplina</h3>
+                <h3>Resumo Geral por Disciplina (Edital Atual)</h3>
                 <div class="table-responsive">
                     <table class="data-table">
                         <thead>
@@ -135,19 +155,31 @@
             </div>
         </section>
 
-        <section id="page-disciplinas" class="page">
-            <h2>Gerenciar Conteúdo</h2>
+        <section id="page-estudos" class="page">
+            <h2>Gestão de Editais e Disciplinas</h2>
+            
+            <div class="card" style="background: rgba(79, 70, 229, 0.05); border-color: var(--primary-color);">
+                <div style="display:flex; flex-direction:column; gap:10px;">
+                    <label style="font-weight:600; color:var(--primary-color);">Gerenciar Edital:</label>
+                    <div style="display:flex; gap:10px;">
+                        <select id="edital-selector" style="flex:1; font-weight:bold;"></select>
+                        <button id="btn-new-edital" class="btn-primary"><i class="ph ph-plus"></i> Novo</button>
+                        <button id="btn-delete-edital" class="btn-danger icon-btn" title="Excluir Edital Atual"><i class="ph ph-trash"></i></button>
+                    </div>
+                </div>
+            </div>
+
             <div class="card" style="display:flex; align-items:center; justify-content:space-between;">
                 <div>
-                    <h3>Minhas Disciplinas</h3>
-                    <p style="color:var(--text-light); font-size:0.9rem;">Gerencie matérias e assuntos.</p>
+                    <h3>Disciplinas</h3>
+                    <p style="color:var(--text-light); font-size:0.9rem;">Matérias de: <strong id="current-edital-label">...</strong></p>
                 </div>
                 <button id="btn-open-add-disc" class="btn-primary">
                     <i class="ph ph-plus"></i> Nova Disciplina
                 </button>
             </div>
             <div class="card">
-                <h3>Progresso Detalhado por Assunto</h3>
+                <h3>Progresso Detalhado</h3>
                 <div id="disciplinas-list"></div>
             </div>
         </section>
@@ -157,23 +189,24 @@
             <div class="dashboard-grid">
                 <div class="card">
                     <h3>1. Configuração</h3>
+                    <p style="font-size:0.85rem; color:var(--text-light); margin-bottom:10px;">Salvo para o Edital atual.</p>
                     <div class="form-group">
                         <label>Meta de Horas Diária</label>
                         <input type="number" id="config-meta-horas" min="1" value="4">
                     </div>
                     <div class="form-group">
-                        <label>Quantas matérias exibir na fila?</label>
+                        <label>Matérias na fila</label>
                         <input type="number" id="ciclo-disciplinas-por-dia" min="1" value="3">
                     </div>
-                    <button id="gerar-ciclo-btn" class="btn-primary full-width" style="margin-top:10px;">Salvar & Gerar Nova Fila</button>
+                    <button id="gerar-ciclo-btn" class="btn-primary full-width" style="margin-top:10px;">Gerar Nova Fila</button>
                 </div>
                 <div class="card">
-                    <h3>2. Pesos (Qtd. na Fila)</h3>
+                    <h3>2. Pesos</h3>
                     <div id="ciclo-disciplinas-selecao"></div>
                 </div>
             </div>
             <div class="card">
-                <h3>3. Fila Atual (Ordem de Estudo)</h3>
+                <h3>3. Fila Atual</h3>
                 <div id="ciclo-resultado-list"></div>
             </div>
         </section>
@@ -221,7 +254,7 @@
                     <div class="chart-container"><canvas id="chart-tempo"></canvas></div>
                 </div>
                 <div class="card full-width-card">
-                    <h3>Cobertura de Edital</h3>
+                    <h3>Cobertura do Edital</h3>
                     <div class="chart-container-bar"><canvas id="chart-cobertura"></canvas></div>
                 </div>
             </div>
@@ -234,6 +267,22 @@
     </main>
 
     <div id="modal-backdrop" class="modal-backdrop"></div>
+    
+    <div id="new-edital-modal" class="modal">
+        <div class="modal-header">
+            <h3>Criar Novo Edital</h3>
+            <button class="modal-close-btn"><i class="ph ph-x"></i></button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group">
+                <label>Nome do Concurso/Edital</label>
+                <input type="text" id="new-edital-name" placeholder="Ex: Receita Federal, ENEM...">
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button id="btn-save-edital" class="btn-primary full-width">Criar Edital</button>
+        </div>
+    </div>
     
     <div id="timer-modal" class="modal">
         <div class="modal-header">
@@ -346,6 +395,7 @@
             <button class="modal-close-btn"><i class="ph ph-x"></i></button>
         </div>
         <div class="modal-body">
+            <p style="margin-bottom:15px; color:var(--primary-color);">Adicionando ao edital: <strong id="add-disc-edital-name">...</strong></p>
             <div class="form-group">
                 <label>Nome da Disciplina</label>
                 <input type="text" id="new-disc-name" placeholder="Ex: Direito Administrativo">
