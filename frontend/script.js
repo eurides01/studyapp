@@ -20,7 +20,6 @@ document.addEventListener('DOMContentLoaded', () => {
     let charts = { acertos: null, tempo: null, cobertura: null };
     const audioAlarm = document.getElementById('timer-sound');
     
-    // Flag para saber se é registro manual legado
     let isLegacyRegistration = false;
     
     // Estado do Timer
@@ -41,7 +40,12 @@ document.addEventListener('DOMContentLoaded', () => {
     
     const editalSelector = document.getElementById('edital-selector');
     const navEditalSelector = document.getElementById('navbar-edital-select');
-    const activeEditalBanner = document.getElementById('active-edital-banner');
+    
+    // ===== HELPER: SANITIZAR STRINGS PARA ONCLICK =====
+    const escapeQuotes = (str) => {
+        if (!str) return '';
+        return str.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+    };
 
     // ===== 4. CONTROLE DE AUTENTICAÇÃO E UI =====
 
@@ -107,7 +111,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('btn-logout').addEventListener('click', performLogout);
     document.getElementById('mobile-btn-logout').addEventListener('click', (e) => { e.preventDefault(); performLogout(); });
 
-    // ===== 5. SINCRONIZAÇÃO DE DADOS & MIGRAÇÃO =====
+    // ===== 5. SINCRONIZAÇÃO DE DADOS =====
 
     const loadDataFromCloud = async () => {
         if(!authToken) return;
@@ -117,7 +121,6 @@ document.addEventListener('DOMContentLoaded', () => {
             if(res.ok) {
                 const cloudData = await res.json();
                 
-                // MIGRACAO
                 if (cloudData.disciplinas && cloudData.disciplinas.length > 0 && (!cloudData.editais || cloudData.editais.length === 0)) {
                     const defaultEdital = {
                         id: 'default-edital',
@@ -128,7 +131,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     cloudData.editais = [defaultEdital];
                     delete cloudData.disciplinas;
                     delete cloudData.ciclo;
-                    
                     db = { ...db, ...cloudData };
                     saveData();
                 } else {
@@ -178,6 +180,12 @@ document.addEventListener('DOMContentLoaded', () => {
         return db.editais.find(e => e.id === currentEditalId) || null;
     };
 
+    const getTaskNumber = (str) => {
+        if (!str) return 999999;
+        const match = str.match(/^T(\d+)/i); 
+        return match ? parseInt(match[1]) : 999999;
+    };
+
     // ===== 6. FUNÇÕES DE TEMPO E DATA =====
 
     const getTodayDate = () => {
@@ -190,7 +198,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const formatDateBr = (dateStr) => {
         if(!dateStr) return "-";
-        if(dateStr === 'SEM_DATA') return "Data desc."; // Tratamento para sem data
+        if(dateStr === 'SEM_DATA') return "Data desc.";
         const cleanDate = dateStr.includes('T') ? dateStr.split('T')[0] : dateStr;
         const [y, m, d] = cleanDate.split('-');
         return `${d}/${m}/${y}`;
@@ -238,8 +246,16 @@ document.addEventListener('DOMContentLoaded', () => {
         fillSelect(editalSelector);
         fillSelect(navEditalSelector);
         
-        const labelEdital = document.getElementById('current-edital-label');
-        if(labelEdital) labelEdital.textContent = edital ? edital.nome : "Nenhum Selecionado";
+        const btnAddDisc = document.getElementById('btn-open-add-disc');
+        if(btnAddDisc && edital) {
+            if(edital.isTrilha) {
+                btnAddDisc.innerHTML = '<i class="ph ph-clipboard-text"></i> Adicionar Trilha';
+                btnAddDisc.classList.replace('btn-primary', 'btn-secondary'); 
+            } else {
+                btnAddDisc.innerHTML = '<i class="ph ph-plus"></i> Nova Disciplina';
+                btnAddDisc.classList.replace('btn-secondary', 'btn-primary');
+            }
+        }
     };
 
     const handleEditalChange = (newId) => {
@@ -257,6 +273,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnNewEdital = document.getElementById('btn-new-edital');
     if(btnNewEdital) btnNewEdital.addEventListener('click', () => {
         document.getElementById('new-edital-name').value = '';
+        const chk = document.getElementById('new-edital-is-trilha');
+        if(chk) chk.checked = false; 
+        
         modalBackdrop.classList.add('active');
         document.getElementById('new-edital-modal').classList.add('active');
     });
@@ -264,11 +283,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnSaveEdital = document.getElementById('btn-save-edital');
     if(btnSaveEdital) btnSaveEdital.addEventListener('click', () => {
         const nome = document.getElementById('new-edital-name').value.trim();
+        const isTrilha = document.getElementById('new-edital-is-trilha').checked; 
+        
         if(!nome) return alert("Digite o nome.");
         
         const newEdital = {
             id: Date.now().toString(),
             nome: nome,
+            isTrilha: isTrilha, 
             disciplinas: [],
             ciclo: { deck: [], disciplinasPorDia: 3, metaHoras: 4 }
         };
@@ -359,11 +381,41 @@ document.addEventListener('DOMContentLoaded', () => {
         renderHeatmap(); 
         calculateStreakStats(); 
         renderDashboardTable(edital);
+        renderEditalGlobalProgress(edital); 
+    };
+
+    const renderEditalGlobalProgress = (edital) => {
+        const elBar = document.getElementById('dash-edital-progress');
+        const elPerc = document.getElementById('dash-edital-perc');
+        if (!elBar || !elPerc) return;
+
+        if (!edital) {
+            elBar.style.width = '0%';
+            elPerc.textContent = '0%';
+            return;
+        }
+
+        let totalAssuntos = 0;
+        let concluidos = 0;
+
+        edital.disciplinas.forEach(d => {
+            totalAssuntos += d.assuntos.length;
+            const concluidosDisc = db.assuntosManuais.filter(m => 
+                m.disciplina === d.nome && 
+                m.assunto && 
+                d.assuntos.includes(m.assunto) && 
+                (!m.editalId || m.editalId === edital.id)
+            ).length;
+            concluidos += concluidosDisc;
+        });
+
+        const percentual = totalAssuntos > 0 ? Math.round((concluidos / totalAssuntos) * 100) : 0;
+        elBar.style.width = `${percentual}%`;
+        elPerc.textContent = `${percentual}%`;
     };
 
     const updateSummaries = (edital) => {
         const today = getTodayDate();
-        
         const metaHoras = (edital && edital.ciclo && edital.ciclo.metaHoras) ? edital.ciclo.metaHoras : 4;
         
         if (!edital) {
@@ -375,9 +427,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         const temposEdital = filterStudiesByEdital(db.tempoEstudos);
-        
         const minsHoje = temposEdital.filter(t => {
-            // Filtra SEM DATA (ignora) e compara datas
             if(t.data === 'SEM_DATA') return false;
             const tData = t.data.includes('T') ? t.data.split('T')[0] : t.data;
             return tData === today;
@@ -410,7 +460,6 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const calculateStreakStats = () => {
-        // Filtra SEM_DATA antes de processar
         const rawDates = new Set([ 
             ...db.estudos.filter(e => e.data !== 'SEM_DATA').map(e => e.data), 
             ...db.tempoEstudos.filter(t => t.data !== 'SEM_DATA').map(t => t.data) 
@@ -462,16 +511,20 @@ document.addEventListener('DOMContentLoaded', () => {
         db.tempoEstudos.forEach(t => { 
             if(t.data === 'SEM_DATA') return;
             const d = t.data.includes('T') ? t.data.split('T')[0] : t.data;
-            dataMap[d] = (dataMap[d] || 0) + t.tempoMinutos; 
+            if(!dataMap[d]) dataMap[d] = { minutes: 0, count: 0 };
+            dataMap[d].minutes += t.tempoMinutos;
+            dataMap[d].count += 1;
         });
+        
         const todayStr = getTodayDate();
         for (let i = 29; i >= 0; i--) {
             const dateStr = addDays(todayStr, -i);
-            const minutes = dataMap[dateStr] || 0;
-            const statusClass = minutes > 0 ? 'studied' : 'missed';
+            const data = dataMap[dateStr] || { minutes: 0, count: 0 };
+            const statusClass = (data.minutes > 0 || data.count > 0) ? 'studied' : 'missed';
+            
             const square = document.createElement('div');
             square.className = `heatmap-square ${statusClass}`;
-            square.title = `${formatDateBr(dateStr)}: ${minutes} min`;
+            square.title = `${formatDateBr(dateStr)}: ${data.minutes} min`;
             container.appendChild(square);
         }
     };
@@ -533,7 +586,50 @@ document.addEventListener('DOMContentLoaded', () => {
                 return tData === today && t.disciplina === disc && t.tipo !== 'revisao' && (!t.editalId || t.editalId === edital.id);
             });
             const statusIcon = studiedToday ? '<i class="ph ph-check-circle" style="color:var(--success-color)"></i>' : '<i class="ph ph-books"></i>';
-            return `<div class="ciclo-item-card"><div class="ciclo-info"><h4>${statusIcon} ${disc}</h4><small>Posição: ${index + 1}</small></div><div class="ciclo-actions"><button class="action-btn btn-manual-action" onclick="openRegistroModal('${disc}')"><span><i class="ph ph-pencil-simple"></i></span> Registrar</button></div></div>`;
+            
+            let sugestaoAssunto = "Todos concluídos!";
+            const dObj = edital.disciplinas.find(d => d.nome === disc);
+            
+            if (dObj && dObj.assuntos.length > 0) {
+                const assuntosPendentes = dObj.assuntos.filter(a => {
+                     return !db.assuntosManuais.some(m => 
+                        m.disciplina === disc && 
+                        m.assunto === a && 
+                        (!m.editalId || m.editalId === edital.id)
+                     );
+                });
+
+                if (assuntosPendentes.length > 0) {
+                    if (edital.isTrilha) {
+                        assuntosPendentes.sort((a, b) => getTaskNumber(a) - getTaskNumber(b));
+                    }
+                    sugestaoAssunto = assuntosPendentes[0];
+                }
+            } else if (dObj && dObj.assuntos.length === 0) {
+                sugestaoAssunto = "Sem assuntos cadastrados";
+            }
+
+            // Sanitiza strings
+            const safeDisc = escapeQuotes(disc);
+            const safeAssunto = (sugestaoAssunto !== "Todos concluídos!" && sugestaoAssunto !== "Sem assuntos cadastrados") 
+                ? escapeQuotes(sugestaoAssunto) 
+                : '';
+
+            return `
+            <div class="ciclo-item-card">
+                <div class="ciclo-info">
+                    <h4>${statusIcon} ${disc}</h4>
+                    <div style="font-size:0.85rem; color:var(--text-light); margin-left:24px; display:flex; align-items:center; gap:5px;">
+                        <i class="ph ph-arrow-elbow-down-right"></i> 
+                        <strong style="color:var(--primary-color)">${sugestaoAssunto}</strong>
+                    </div>
+                </div>
+                <div class="ciclo-actions">
+                    <button class="action-btn btn-manual-action" onclick="openRegistroModal('${safeDisc}', '${safeAssunto}')">
+                        <span><i class="ph ph-pencil-simple"></i></span> Registrar
+                    </button>
+                </div>
+            </div>`;
         }).join('');
     };
 
@@ -542,7 +638,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if(!edital) return;
         const deck = edital.ciclo.deck; 
         const idx = deck.indexOf(disc);
-        if (idx > -1) { deck.splice(idx, 1); deck.push(disc); saveData(); }
+        if (idx > -1) { deck.splice(idx, 1); deck.push(disc); }
     };
 
     const renderRevisoesPendentes = (edital) => {
@@ -634,6 +730,9 @@ document.addEventListener('DOMContentLoaded', () => {
             const pct = totalAssuntos > 0 ? (qtdEstudada / totalAssuntos) * 100 : 0;
             
             const div = document.createElement('div'); div.className = 'disciplina-item';
+            
+            const safeDiscName = escapeQuotes(d.nome);
+
             div.innerHTML = `
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;"><h4 style="margin:0">${d.nome}</h4><button class="icon-action-btn btn-trash" onclick="delDisc('${d.id}')" title="Excluir Disciplina"><i class="ph ph-trash"></i></button></div>
                 <div style="display:flex; justify-content:space-between; font-size:0.85rem; color:var(--text-light); margin-bottom:5px;"><span>Progresso Concluído</span><span>${qtdEstudada}/${totalAssuntos} (${Math.round(pct)}%)</span></div>
@@ -651,10 +750,11 @@ document.addEventListener('DOMContentLoaded', () => {
                     const perc = q > 0 ? Math.round((ac/q)*100) : 0; 
                     const time = subTimes.reduce((acc, t) => acc + t.tempoMinutos, 0);
                     
-                    // Se já estiver marcado, o clique remove. Se não, o clique abre o modal.
+                    const safeAssunto = escapeQuotes(a);
+
                     const clickAction = isStudied 
-                        ? `toggleManualStudy('${d.nome}', '${a}')` 
-                        : `openRegistroModal('${d.nome}', '${a}', true)`; // True indica que veio do clique de completar
+                        ? `toggleManualStudy('${safeDiscName}', '${safeAssunto}')` 
+                        : `openRegistroModal('${safeDiscName}', '${safeAssunto}', true)`; 
 
                     return `<li class="assunto-item ${studiedClass}">
                         <div class="assunto-content"><span>${a}</span></div>
@@ -666,7 +766,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         </div>
                         <div class="assunto-actions">
                             <button class="icon-action-btn btn-check-manual ${btnActive}" onclick="${clickAction}" title="${isStudied ? 'Desmarcar' : 'Concluir e Registrar'}"><i class="ph ph-check"></i></button>
-                            <button class="icon-action-btn btn-trash" onclick="delAss('${d.id}','${a}')" title="Excluir Assunto"><i class="ph ph-trash"></i></button>
+                            <button class="icon-action-btn btn-trash" onclick="delAss('${d.id}','${safeAssunto}')" title="Excluir Assunto"><i class="ph ph-trash"></i></button>
                         </div>
                     </li>`;
                 }).join('')}</ul>
@@ -687,6 +787,7 @@ document.addEventListener('DOMContentLoaded', () => {
             saveData(); 
             renderDisciplinas(); 
             if(document.getElementById('page-estatisticas').classList.contains('active')) renderEstatisticas();
+            renderHomePage(); 
         }
     };
 
@@ -723,11 +824,17 @@ document.addEventListener('DOMContentLoaded', () => {
         const edital = getCurrentEdital();
         if (!edital) return alert("Crie um edital primeiro!");
         
-        document.getElementById('new-disc-name').value = ''; 
-        document.getElementById('new-disc-subjects').value = ''; 
-        document.getElementById('add-disc-edital-name').textContent = edital.nome;
-        modalBackdrop.classList.add('active'); 
-        document.getElementById('add-disciplina-modal').classList.add('active'); 
+        if (edital.isTrilha) {
+            document.getElementById('trilha-csv-input').value = '';
+            modalBackdrop.classList.add('active');
+            document.getElementById('import-trilha-modal').classList.add('active');
+        } else {
+            document.getElementById('new-disc-name').value = ''; 
+            document.getElementById('new-disc-subjects').value = ''; 
+            document.getElementById('add-disc-edital-name').textContent = edital.nome;
+            modalBackdrop.classList.add('active'); 
+            document.getElementById('add-disciplina-modal').classList.add('active'); 
+        }
     });
     
     const btnSaveNewDisc = document.getElementById('btn-save-new-disc');
@@ -748,6 +855,67 @@ document.addEventListener('DOMContentLoaded', () => {
         modalBackdrop.classList.remove('active'); 
         document.getElementById('add-disciplina-modal').classList.remove('active'); 
         alert("Disciplina criada!");
+    });
+
+    const btnProcessTrilha = document.getElementById('btn-process-trilha');
+    if(btnProcessTrilha) btnProcessTrilha.addEventListener('click', () => {
+        const input = document.getElementById('trilha-csv-input').value;
+        const edital = getCurrentEdital();
+
+        if(!input.trim()) return alert("Cole os dados da trilha.");
+        if(!edital) return;
+
+        const lines = input.split('\n');
+        let processedCount = 0;
+
+        lines.forEach(line => {
+            const parts = line.split(';');
+            if(parts.length >= 4) {
+                const [trilhaNum, tarefaNum, discRaw, tituloRaw] = parts.map(p => p.trim());
+                if(!discRaw || !tituloRaw) return;
+
+                const nomeDisciplina = discRaw;
+                const nomeAssunto = `T${tarefaNum} - ${tituloRaw}`;
+
+                let disciplinaObj = edital.disciplinas.find(d => d.nome.toLowerCase() === nomeDisciplina.toLowerCase());
+                
+                if(!disciplinaObj) {
+                    disciplinaObj = { 
+                        id: Date.now().toString() + Math.random().toString().substr(2, 5), 
+                        nome: nomeDisciplina, 
+                        assuntos: [] 
+                    };
+                    edital.disciplinas.push(disciplinaObj);
+                }
+
+                if(!disciplinaObj.assuntos.includes(nomeAssunto)) {
+                    disciplinaObj.assuntos.push(nomeAssunto);
+                    processedCount++;
+                }
+            }
+        });
+
+        edital.disciplinas.forEach(d => {
+            d.assuntos.sort((a, b) => {
+                const regex = /^T(\d+)/;
+                const matchA = a.match(regex);
+                const matchB = b.match(regex);
+                if(matchA && matchB) {
+                    return parseInt(matchA[1]) - parseInt(matchB[1]);
+                }
+                return a.localeCompare(b);
+            });
+        });
+
+        if(processedCount > 0) {
+            saveData();
+            renderDisciplinas();
+            modalBackdrop.classList.remove('active');
+            document.getElementById('import-trilha-modal').classList.remove('active');
+            alert(`${processedCount} tarefas importadas com sucesso!`);
+        } else {
+            alert("Nenhuma tarefa válida encontrada ou todas já foram importadas. Verifique o formato.");
+        }
     });
 
     // ===== 12. CONFIG CICLO (DENTRO DO EDITAL) =====
@@ -790,14 +958,26 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const porDia = parseInt(document.getElementById('ciclo-disciplinas-por-dia').value); 
         const metaHoras = parseInt(document.getElementById('config-meta-horas').value); 
-        
         let deck = []; 
-        document.querySelectorAll('.ciclo-peso').forEach(i => { 
-            const qtd = parseInt(i.value); for(let k=0; k<qtd; k++) deck.push(i.dataset.nome); 
-        }); 
         
-        if(deck.length === 0) return alert("Selecione disciplinas."); 
-        for (let i = deck.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [deck[i], deck[j]] = [deck[j], deck[i]]; } 
+        if (edital.isTrilha) {
+            let allTasks = [];
+            edital.disciplinas.forEach(d => {
+                d.assuntos.forEach(a => {
+                    allTasks.push({ nomeDisc: d.nome, assunto: a, taskNum: getTaskNumber(a) });
+                });
+            });
+            allTasks.sort((a, b) => a.taskNum - b.taskNum);
+            deck = allTasks.map(t => t.nomeDisc);
+            
+        } else {
+            document.querySelectorAll('.ciclo-peso').forEach(i => { 
+                const qtd = parseInt(i.value); for(let k=0; k<qtd; k++) deck.push(i.dataset.nome); 
+            }); 
+            
+            if(deck.length === 0) return alert("Selecione disciplinas."); 
+            for (let i = deck.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [deck[i], deck[j]] = [deck[j], deck[i]]; } 
+        }
         
         edital.ciclo = { deck, disciplinasPorDia: porDia, metaHoras: metaHoras }; 
         saveData(); renderCicloFila(edital); renderCicloPreview(edital); 
@@ -806,7 +986,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // ===== 13. REGISTRO MANUAL =====
 
-    // ALTERAÇÃO: Agora inicializa data e flag legado
     window.openRegistroModal = (disc = null, assuntoPreSelecionado = null, fromListClick = false) => {
         const edital = getCurrentEdital();
         if (!edital) return alert("Crie um edital primeiro!");
@@ -816,29 +995,28 @@ document.addEventListener('DOMContentLoaded', () => {
         const discHidden = document.getElementById('reg-disciplina-hidden');
         const modalTitle = document.getElementById('reg-modal-title');
         const finalizadoCheckbox = document.getElementById('reg-finalizado');
+        const revisoesCheckbox = document.getElementById('reg-agendar-revisoes'); 
         const dataInput = document.getElementById('reg-data-input');
         const semDataCheckbox = document.getElementById('reg-sem-data');
         
-        // Reset campos
         document.getElementById('reg-novo-assunto').value = ''; 
         document.getElementById('reg-questoes').value = ''; 
         document.getElementById('reg-acertos').value = ''; 
         document.getElementById('reg-tempo').value = '';
         finalizadoCheckbox.checked = false;
         
-        // Inicializa data com hoje
+        if(revisoesCheckbox) revisoesCheckbox.checked = true;
+
         dataInput.value = getTodayDate();
         dataInput.disabled = false;
         semDataCheckbox.checked = false;
         
-        // Define se é legado (veio do clique da lista)
         isLegacyRegistration = fromListClick; 
         
         if (assuntoPreSelecionado) {
             finalizadoCheckbox.checked = true;
         }
 
-        // Listener para o checkbox "Sem Data"
         semDataCheckbox.onchange = (e) => {
             dataInput.disabled = e.target.checked;
         };
@@ -851,6 +1029,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if(assuntoPreSelecionado) {
                 const select = document.getElementById('reg-assunto-select');
+                let optionExists = false;
+                for (let i = 0; i < select.options.length; i++) {
+                    if (select.options[i].value === assuntoPreSelecionado) {
+                        optionExists = true;
+                        break;
+                    }
+                }
+                if(!optionExists) {
+                    const opt = document.createElement('option');
+                    opt.value = assuntoPreSelecionado;
+                    opt.textContent = assuntoPreSelecionado;
+                    select.appendChild(opt);
+                }
                 select.value = assuntoPreSelecionado;
             }
         } else {
@@ -873,7 +1064,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const select = document.getElementById('reg-assunto-select'); select.innerHTML = '<option value="">Selecione um assunto...</option>'; document.getElementById('reg-novo-assunto').value = '';
         if (!discName) return; 
         const edital = getCurrentEdital();
-        const dObj = edital.disciplinas.find(d => d.nome === discName); 
+        
+        const dObj = edital.disciplinas.find(d => d.nome.toLowerCase() === discName.toLowerCase()); 
+        
         if (dObj && dObj.assuntos.length > 0) { 
             dObj.assuntos.forEach(a => { const opt = document.createElement('option'); opt.value = a; opt.textContent = a; select.appendChild(opt); }); 
         }
@@ -881,38 +1074,47 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const btnSalvarRegistro = document.getElementById('btn-salvar-registro');
     if(btnSalvarRegistro) btnSalvarRegistro.addEventListener('click', () => {
-        const disc = document.getElementById('reg-disciplina-hidden').value; 
-        const novoAssunto = document.getElementById('reg-novo-assunto').value.trim(); 
-        const assuntoSelecionado = document.getElementById('reg-assunto-select').value; 
-        const finalizado = document.getElementById('reg-finalizado').checked;
-        const edital = getCurrentEdital();
-        
-        // VERIFICA SE É "SEM DATA" OU DATA NORMAL
-        const semData = document.getElementById('reg-sem-data').checked;
-        let dataRegistro;
-        if(semData) {
-            dataRegistro = 'SEM_DATA';
-        } else {
-            dataRegistro = document.getElementById('reg-data-input').value || getTodayDate();
-        }
+        try {
+            const disc = document.getElementById('reg-disciplina-hidden').value; 
+            const novoAssunto = document.getElementById('reg-novo-assunto').value.trim(); 
+            const assuntoSelecionado = document.getElementById('reg-assunto-select').value; 
+            const finalizado = document.getElementById('reg-finalizado').checked;
+            const agendarRevisoes = document.getElementById('reg-agendar-revisoes').checked; 
+            const edital = getCurrentEdital();
+            
+            const semData = document.getElementById('reg-sem-data').checked;
+            let dataRegistro;
+            if(semData) {
+                dataRegistro = 'SEM_DATA';
+            } else {
+                dataRegistro = document.getElementById('reg-data-input').value || getTodayDate();
+            }
 
-        let assuntoFinal = ""; if (!disc) return alert("Selecione disciplina.");
-        
-        if (novoAssunto) { 
-            assuntoFinal = novoAssunto; 
-            const dObj = edital.disciplinas.find(d => d.nome === disc); 
-            if (dObj && !dObj.assuntos.includes(novoAssunto)) { dObj.assuntos.push(novoAssunto); dObj.assuntos.sort(); } 
-        } else if (assuntoSelecionado) { assuntoFinal = assuntoSelecionado; }
-        
-        if (!assuntoFinal) return alert("Selecione assunto.");
-        
-        const totalQ = parseInt(document.getElementById('reg-questoes').value) || 0; 
-        const totalA = parseInt(document.getElementById('reg-acertos').value) || 0; 
-        const totalT = parseInt(document.getElementById('reg-tempo').value) || 0;
-        
-        if (totalA > totalQ) return alert("Acertos > Questões.");
-        
-        if (totalQ > 0) { 
+            let assuntoFinal = ""; if (!disc) return alert("Selecione disciplina.");
+            
+            if (novoAssunto) { 
+                assuntoFinal = novoAssunto; 
+                const dObj = edital.disciplinas.find(d => d.nome === disc); 
+                if (dObj && !dObj.assuntos.includes(novoAssunto)) { dObj.assuntos.push(novoAssunto); dObj.assuntos.sort(); } 
+            } else if (assuntoSelecionado) { assuntoFinal = assuntoSelecionado; }
+            
+            if (!assuntoFinal) return alert("Selecione assunto.");
+            
+            const totalQ = parseInt(document.getElementById('reg-questoes').value) || 0; 
+            const totalA = parseInt(document.getElementById('reg-acertos').value) || 0; 
+            const totalT = parseInt(document.getElementById('reg-tempo').value) || 0;
+            
+            if (totalA > totalQ) return alert("Acertos > Questões.");
+            
+            let revisoesArray = [];
+            if (agendarRevisoes) {
+                revisoesArray = [
+                    {data: addDays(dataRegistro, 1), concluida: false},
+                    {data: addDays(dataRegistro, 7), concluida: false},
+                    {data: addDays(dataRegistro, 30), concluida: false}
+                ];
+            }
+
             db.estudos.push({ 
                 id: Date.now().toString(), 
                 editalId: edital.id, 
@@ -921,44 +1123,47 @@ document.addEventListener('DOMContentLoaded', () => {
                 assunto: assuntoFinal, 
                 total: totalQ, 
                 acertos: totalA, 
-                percentual: (totalA/totalQ)*100, 
-                revisoes: [{data: addDays(dataRegistro, 1), concluida: false},{data: addDays(dataRegistro, 7), concluida: false},{data: addDays(dataRegistro, 30), concluida: false}] 
+                percentual: totalQ > 0 ? (totalA/totalQ)*100 : 0, 
+                revisoes: revisoesArray 
             }); 
-        }
-        
-        if (totalT > 0 || totalQ > 0) { 
-            db.tempoEstudos.push({ 
-                id: Date.now().toString()+'m', 
-                editalId: edital.id, 
-                data: dataRegistro, 
-                disciplina: disc, 
-                assunto: assuntoFinal, 
-                tempoMinutos: totalT, 
-                tipo: 'manual' 
+            
+            if (totalT > 0 || totalQ > 0 || finalizado) { 
+                db.tempoEstudos.push({ 
+                    id: Date.now().toString()+'m', 
+                    editalId: edital.id, 
+                    data: dataRegistro, 
+                    disciplina: disc, 
+                    assunto: assuntoFinal, 
+                    tempoMinutos: totalT, 
+                    tipo: 'manual' 
+                }); 
+            }
+            
+            if (finalizado) { 
+                if(!db.assuntosManuais.some(m => m.disciplina === disc && m.assunto === assuntoFinal && m.editalId === edital.id)) { 
+                    db.assuntosManuais.push({disciplina: disc, assunto: assuntoFinal, editalId: edital.id}); 
+                } 
+            }
+            
+            if (!isLegacyRegistration) {
+                rotateCycle(disc); 
+            }
+            
+            saveData().catch(err => {
+                console.error("Erro ao salvar:", err);
+                alert("Erro ao salvar no servidor. Verifique o console.");
             }); 
-        }
-        
-        if (finalizado) { 
-            if(!db.assuntosManuais.some(m => m.disciplina === disc && m.assunto === assuntoFinal && m.editalId === edital.id)) { 
-                db.assuntosManuais.push({disciplina: disc, assunto: assuntoFinal, editalId: edital.id}); 
-            } 
-        }
-        
-        // Só gira o ciclo se não for legado (não veio do clique na lista)
-        if (!isLegacyRegistration) {
-            rotateCycle(disc); 
-        }
-        
-        saveData(); 
-        modalBackdrop.classList.remove('active'); 
-        document.getElementById('registro-modal').classList.remove('active'); 
-        
-        renderHomePage(); 
-        
-        // Força atualização imediata da lista de disciplinas para mostrar os novos dados
-        renderDisciplinas();
+            
+            modalBackdrop.classList.remove('active'); 
+            document.getElementById('registro-modal').classList.remove('active'); 
+            
+            renderHomePage(); 
 
-        alert("Salvo!");
+            alert("Salvo!");
+        } catch (e) {
+            console.error(e);
+            alert("Ocorreu um erro ao processar o registro: " + e.message);
+        }
     });
 
     // ===== 14. ESTATÍSTICAS =====
@@ -986,7 +1191,7 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('stat-media-geral').textContent = totQ > 0 ? `${Math.round((totA/totQ)*100)}%` : '0%';
         
         renderCharts(edital, estudosF, tempoF); 
-        renderHistorico(estudosF);
+        renderHistorico(estudosF, ini, fim);
     };
 
     const renderCharts = (edital, estudos, tempos) => {
@@ -1008,25 +1213,122 @@ document.addEventListener('DOMContentLoaded', () => {
             return d.assuntos.length > 0 ? (uniqueStudied.size / d.assuntos.length)*100 : 0; 
         });
 
-        const commonOpts = { responsive:true, maintainAspectRatio: false };
+        const minHeight = 300;
+        const dynamicHeight = Math.max(minHeight, labels.length * 35);
+        const heightStr = `${dynamicHeight}px`;
+
+        ['chart-acertos', 'chart-tempo', 'chart-cobertura'].forEach(id => {
+            const el = document.getElementById(id);
+            if(el && el.parentElement) {
+                el.parentElement.style.height = heightStr;
+            }
+        });
+
+        const commonOpts = {
+            responsive: true,
+            maintainAspectRatio: false,
+            indexAxis: 'y', 
+            scales: {
+                x: { beginAtZero: true, grid: { color: 'rgba(0,0,0,0.05)' } },
+                y: { grid: { display: false }, ticks: { autoSkip: false } }
+            },
+            plugins: {
+                legend: { display: false }
+            }
+        };
         
         if(charts.acertos) charts.acertos.destroy(); 
-        if(document.getElementById('chart-acertos')) charts.acertos = new Chart(document.getElementById('chart-acertos'), { type: 'bar', data: { labels, datasets: [{ label: '% Acerto', data: dataAcertos, backgroundColor: '#4f46e5' }] }, options: { ...commonOpts, scales: { y: { beginAtZero: true, max: 100 } } } });
+        if(document.getElementById('chart-acertos')) charts.acertos = new Chart(document.getElementById('chart-acertos'), { 
+            type: 'bar', 
+            data: { labels, datasets: [{ label: '% Acerto', data: dataAcertos, backgroundColor: '#4f46e5' }] }, 
+            options: { 
+                ...commonOpts, 
+                scales: { ...commonOpts.scales, x: { ...commonOpts.scales.x, max: 100 } } 
+            } 
+        });
         
         if(charts.tempo) charts.tempo.destroy(); 
-        if(document.getElementById('chart-tempo')) charts.tempo = new Chart(document.getElementById('chart-tempo'), { type: 'bar', data: { labels, datasets: [{ label: 'Horas', data: dataTempo, backgroundColor: '#8b5cf6' }] }, options: { ...commonOpts, indexAxis: 'y' } });
+        if(document.getElementById('chart-tempo')) charts.tempo = new Chart(document.getElementById('chart-tempo'), { 
+            type: 'bar', 
+            data: { labels, datasets: [{ label: 'Horas', data: dataTempo, backgroundColor: '#8b5cf6' }] }, 
+            options: commonOpts 
+        });
         
         if(charts.cobertura) charts.cobertura.destroy(); 
-        if(document.getElementById('chart-cobertura')) charts.cobertura = new Chart(document.getElementById('chart-cobertura'), { type: 'bar', data: { labels, datasets: [{ label: '% Concluído', data: dataCob, backgroundColor: '#22c55e' }] }, options: { ...commonOpts, indexAxis: 'y', scales: { x: { max: 100 } } } });
+        if(document.getElementById('chart-cobertura')) charts.cobertura = new Chart(document.getElementById('chart-cobertura'), { 
+            type: 'bar', 
+            data: { labels, datasets: [{ label: '% Concluído', data: dataCob, backgroundColor: '#22c55e' }] }, 
+            options: { 
+                ...commonOpts, 
+                scales: { ...commonOpts.scales, x: { ...commonOpts.scales.x, max: 100 } } 
+            } 
+        });
     };
 
-    const renderHistorico = (estudos) => {
+    const renderHistorico = (estudos, dataInicio, dataFim) => {
         const container = document.getElementById('stat-historico-revisoes'); 
-        if(estudos.length === 0) { container.innerHTML = '<p class="empty-state">Sem dados.</p>'; return; }
-        container.innerHTML = estudos.slice().reverse().slice(0, 20).map(e => { 
+        
+        let filteredEstudos = estudos.filter(e => {
+            if (e.data === 'SEM_DATA') return true; 
+            const d = e.data.includes('T') ? e.data.split('T')[0] : e.data;
+            if (dataInicio && d < dataInicio) return false;
+            if (dataFim && d > dataFim) return false;
+            return true;
+        });
+
+        if(filteredEstudos.length === 0) { container.innerHTML = '<p class="empty-state">Sem dados neste período.</p>'; return; }
+        
+        const sortedEstudos = filteredEstudos.slice().sort((a, b) => {
+            if (a.data === 'SEM_DATA') return 1;
+            if (b.data === 'SEM_DATA') return -1;
+            return new Date(b.data) - new Date(a.data);
+        });
+
+        const displayLimit = (dataInicio || dataFim) ? sortedEstudos.length : 50;
+
+        container.innerHTML = sortedEstudos.slice(0, displayLimit).map(e => { 
             const dataF = formatDateBr(e.data); 
-            return `<div style="padding:10px; border-bottom:1px solid var(--border-color);"><strong>${e.disciplina}</strong> - ${e.assunto}<br><small>${e.acertos}/${e.total} acertos (${Math.round(e.percentual)}%) em ${dataF}</small></div>`; 
+            let revBadge = '';
+            
+            if (e.revisoes && e.revisoes.length > 0) {
+                const total = e.revisoes.length;
+                const concluidas = e.revisoes.filter(r => r.concluida).length;
+                const statusColor = concluidas === total ? 'var(--success-color)' : 'var(--warning-color)';
+                
+                const revDetails = e.revisoes.map((r, i) => {
+                    const label = i === 0 ? '1d' : i === 1 ? '7d' : '30d';
+                    const icon = r.concluida ? '✓' : '○';
+                    const style = r.concluida ? 'color:var(--success-color); font-weight:bold;' : 'color:var(--text-light);';
+                    return `<span style="${style} margin-right:5px; font-size:0.75rem;">[${icon}] ${label}</span>`;
+                }).join('');
+
+                revBadge = `<div style="margin-top:5px; font-size:0.8rem;">
+                    <strong style="color:${statusColor}; font-size:0.75rem; text-transform:uppercase; margin-right:5px;">Revisões:</strong>
+                    ${revDetails}
+                </div>`;
+            }
+
+            const desempenho = e.total > 0 
+                ? `${e.acertos}/${e.total} acertos (<strong style="color:${e.percentual>=80?'var(--success-color)':e.percentual<50?'var(--danger-color)':'var(--warning-color)'}">${Math.round(e.percentual)}%</strong>)` 
+                : `<span style="color:var(--secondary-color); font-style:italic;">Estudo Teórico / Leitura</span>`;
+
+            return `
+            <div style="padding:12px; border-bottom:1px solid var(--border-color); display:flex; flex-direction:column; gap:4px;">
+                <div style="display:flex; justify-content:space-between;">
+                    <span style="font-weight:600; color:var(--text-color);">${e.disciplina}</span>
+                    <span style="font-size:0.8rem; color:var(--text-light);">${dataF}</span>
+                </div>
+                <div style="color:var(--text-color); font-size:0.9rem;">${e.assunto}</div>
+                <div style="font-size:0.85rem; color:var(--text-light);">${desempenho}</div>
+                ${revBadge}
+            </div>`; 
         }).join('');
+        
+        if (sortedEstudos.length > displayLimit) {
+            container.innerHTML += `<div style="text-align:center; padding:15px; color:var(--text-light); font-size:0.9rem; font-style:italic;">
+                Exibindo os ${displayLimit} últimos registros. Use os filtros de data para ver mais antigos.
+            </div>`;
+        }
     };
 
     // ===== 15. TIMER =====

@@ -6,15 +6,19 @@ const path = require('path');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
+// Como o server.js está em /backend e os models em /backend/models, o caminho ./models está correto
 const User = require('./models/User');
 const StudyData = require('./models/StudyData');
 
 const app = express();
-app.use(express.json());
+
+// 1. AUMENTO DO LIMITE DE DADOS (50mb)
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
+
 app.use(cors());
 
-// Variável global para controlar novos registros (em memória)
-// Em um sistema maior, isso ficaria no banco de dados.
+// Variável global para controlar novos registros
 let REGISTRATION_OPEN = true; 
 
 mongoose.connect(process.env.MONGO_URI)
@@ -47,23 +51,20 @@ const adminAuth = async (req, res, next) => {
 
 // --- ROTAS DE AUTENTICAÇÃO ---
 
-// Registro
 app.post('/api/auth/register', async (req, res) => {
-    if (!REGISTRATION_OPEN) return res.status(403).json({ msg: 'Novos registros estão bloqueados pelo administrador.' });
+    if (!REGISTRATION_OPEN) return res.status(403).json({ msg: 'Novos registros estão temporariamente bloqueados.' });
 
     const { name, email, password } = req.body;
     try {
         let user = await User.findOne({ email });
         if (user) return res.status(400).json({ msg: 'Email já cadastrado' });
 
+        user = new User({ name, email, password });
+        
         const salt = await bcrypt.genSalt(10);
-        const hashedPassword = await bcrypt.hash(password, salt);
-
-        user = new User({ name: name || 'Estudante', email, password: hashedPassword });
+        user.password = await bcrypt.hash(password, salt);
+        
         await user.save();
-
-        const initialData = { disciplinas: [], estudos: [], tempoEstudos: [], assuntosManuais: [], ciclo: { deck: [] } };
-        await new StudyData({ userId: user.id, data: initialData }).save();
 
         const payload = { user: { id: user.id } };
         jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '7d' }, (err, token) => {
@@ -75,20 +76,18 @@ app.post('/api/auth/register', async (req, res) => {
     }
 });
 
-// Login
 app.post('/api/auth/login', async (req, res) => {
     const { email, password } = req.body;
     try {
         let user = await User.findOne({ email });
-        if (!user) return res.status(400).json({ msg: 'Email não encontrado' });
+        if (!user) return res.status(400).json({ msg: 'Credenciais inválidas' });
 
         const isMatch = await bcrypt.compare(password, user.password);
-        if (!isMatch) return res.status(400).json({ msg: 'Senha incorreta' });
+        if (!isMatch) return res.status(400).json({ msg: 'Credenciais inválidas' });
 
         const payload = { user: { id: user.id } };
         jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '7d' }, (err, token) => {
             if (err) throw err;
-            // Retornamos também os dados do usuário para o frontend saber se é admin
             res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role } });
         });
     } catch (err) {
@@ -96,42 +95,39 @@ app.post('/api/auth/login', async (req, res) => {
     }
 });
 
-// --- ROTAS DE PERFIL DO USUÁRIO ---
-
-// Atualizar Perfil (Nome e Senha)
 app.put('/api/auth/profile', auth, async (req, res) => {
     const { name, password } = req.body;
     try {
-        const user = await User.findById(req.user.id);
+        let user = await User.findById(req.user.id);
+        if (!user) return res.status(404).json({ msg: 'Usuário não encontrado' });
+
         if (name) user.name = name;
         if (password) {
             const salt = await bcrypt.genSalt(10);
             user.password = await bcrypt.hash(password, salt);
         }
+
         await user.save();
-        res.json({ msg: 'Perfil atualizado com sucesso!', user: { name: user.name, email: user.email, role: user.role } });
+        res.json({ user: { id: user.id, name: user.name, email: user.email, role: user.role } });
     } catch (err) {
-        res.status(500).send('Erro ao atualizar perfil');
+        res.status(500).send('Erro no servidor');
     }
 });
 
-// Excluir Própria Conta
 app.delete('/api/auth/account', auth, async (req, res) => {
     try {
         await StudyData.findOneAndDelete({ userId: req.user.id });
         await User.findByIdAndDelete(req.user.id);
-        res.json({ msg: 'Conta excluída permanentemente.' });
+        res.json({ msg: 'Conta excluída com sucesso.' });
     } catch (err) {
-        res.status(500).send('Erro ao excluir conta');
+        res.status(500).send('Erro no servidor');
     }
 });
 
-// --- ROTAS DE ADMINISTRADOR ---
+// --- ROTAS DE ADMIN ---
 
-// Listar Usuários
 app.get('/api/admin/users', auth, adminAuth, async (req, res) => {
     try {
-        // Traz todos os usuários menos a senha
         const users = await User.find().select('-password');
         res.json({ users, registrationOpen: REGISTRATION_OPEN });
     } catch (err) {
@@ -139,7 +135,6 @@ app.get('/api/admin/users', auth, adminAuth, async (req, res) => {
     }
 });
 
-// Admin Excluir Usuário
 app.delete('/api/admin/user/:id', auth, adminAuth, async (req, res) => {
     try {
         await StudyData.findOneAndDelete({ userId: req.params.id });
@@ -150,13 +145,13 @@ app.delete('/api/admin/user/:id', auth, adminAuth, async (req, res) => {
     }
 });
 
-// Alternar Bloqueio de Registro
 app.post('/api/admin/toggle-registration', auth, adminAuth, async (req, res) => {
     REGISTRATION_OPEN = !REGISTRATION_OPEN;
     res.json({ msg: `Novos registros ${REGISTRATION_OPEN ? 'LIBERADOS' : 'BLOQUEADOS'}.`, status: REGISTRATION_OPEN });
 });
 
 // --- ROTAS DE DADOS (SYNC) ---
+
 app.get('/api/data', auth, async (req, res) => {
     try {
         const studyData = await StudyData.findOne({ userId: req.user.id });
@@ -168,12 +163,21 @@ app.post('/api/data', auth, async (req, res) => {
     try {
         await StudyData.findOneAndUpdate({ userId: req.user.id }, { $set: { data: req.body } }, { upsert: true });
         res.json({ msg: "Salvo" });
-    } catch (err) { res.status(500).send('Erro'); }
+    } catch (err) { res.status(500).send('Erro ao salvar'); }
 });
 
-// --- FRONTEND ---
-app.use(express.static(path.join(__dirname, '../frontend')));
-app.get(/.*/, (req, res) => res.sendFile(path.join(__dirname, '../frontend', 'index.html')));
+// --- 2. SERVIR ARQUIVOS ESTÁTICOS (Correção Definitiva) ---
+
+// __dirname = .../meu-studyapp/backend
+// ../frontend = .../meu-studyapp/frontend
+const clientPath = path.join(__dirname, '../frontend');
+
+app.use(express.static(clientPath));
+
+// Rota "Coringa": Manda o index.html que está dentro da pasta frontend
+app.get('*', (req, res) => {
+    res.sendFile(path.join(clientPath, 'index.html'));
+});
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Servidor rodando na porta ${PORT}`));

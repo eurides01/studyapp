@@ -79,6 +79,7 @@
     <main class="container">
         
         <section id="page-home" class="page active">
+            
             <div class="card" style="margin-bottom: 1.5rem;">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
                     <h3>Consistência (30 Dias)</h3>
@@ -136,6 +137,18 @@
                     </div>
                 </div>
             </div>
+
+            <div class="card" style="margin-bottom: 1.5rem; border-color: var(--primary-color);">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                    <h3 style="margin:0; color:var(--primary-color);"><i class="ph ph-chart-line-up"></i> Progresso do Edital</h3>
+                    <span id="dash-edital-perc" style="font-weight:700; font-size:1.1rem; color:var(--primary-color);">0%</span>
+                </div>
+                <div class="progress-bar-bg" style="height: 15px; border-radius: 10px; overflow: hidden; background: rgba(0,0,0,0.05);">
+                    <div id="dash-edital-progress" style="width: 0%; height: 100%; background: var(--primary-color); transition: width 1s ease-in-out;"></div>
+                </div>
+                <p style="text-align:right; font-size:0.8rem; color:var(--text-light); margin-top:5px;">Baseado em assuntos concluídos</p>
+            </div>
+
             <div class="card full-width-card">
                 <h3>Resumo Geral por Disciplina (Edital Atual)</h3>
                 <div class="table-responsive">
@@ -279,9 +292,40 @@
                 <label>Nome do Concurso/Edital</label>
                 <input type="text" id="new-edital-name" placeholder="Ex: Receita Federal, ENEM...">
             </div>
+            <div class="form-group checkbox-row" style="background: rgba(79, 70, 229, 0.05); padding: 10px; border-radius: 8px; border: 1px solid var(--primary-color);">
+                <input type="checkbox" id="new-edital-is-trilha" style="width:auto; transform: scale(1.3); accent-color: var(--primary-color);">
+                <label for="new-edital-is-trilha" style="margin:0; font-weight:600; cursor:pointer; color: var(--text-color);">
+                    Modo Trilha Estratégica <i class="ph ph-strategy" style="margin-left:5px;"></i>
+                </label>
+            </div>
+            <p style="font-size:0.8rem; color:var(--text-light); margin-top:5px;">
+                No modo trilha, você importa tarefas em massa via CSV em vez de criar disciplinas manualmente.
+            </p>
         </div>
         <div class="modal-footer">
             <button id="btn-save-edital" class="btn-primary full-width">Criar Edital</button>
+        </div>
+    </div>
+    
+    <div id="import-trilha-modal" class="modal">
+        <div class="modal-header">
+            <h3>Adicionar Trilha Estratégica</h3>
+            <button class="modal-close-btn"><i class="ph ph-x"></i></button>
+        </div>
+        <div class="modal-body">
+            <p style="margin-bottom:15px; color:var(--text-light); font-size:0.9rem;">
+                Cole os dados abaixo. O formato deve ser texto separado por ponto e vírgula (;) contendo:<br>
+                <strong>Nº Trilha; Nº Tarefa; Disciplina; Título da Tarefa</strong>
+            </p>
+            <div class="form-group">
+                <textarea id="trilha-csv-input" rows="10" placeholder="Exemplo:
+01; 01; Português; Acentuação Gráfica
+01; 02; Direito Constitucional; Artigo 5º
+01; 03; Português; Crase"></textarea>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button id="btn-process-trilha" class="btn-primary full-width">Adicionar Trilha</button>
         </div>
     </div>
     
@@ -345,12 +389,23 @@
                 </select>
                 <input type="text" id="reg-novo-assunto" placeholder="Ou digite um novo assunto..." style="margin-top:10px;">
             </div>
-            <div class="form-group checkbox-row" style="background: rgba(34, 197, 94, 0.1); padding: 10px; border-radius: 8px; border: 1px solid var(--success-color);">
-                <input type="checkbox" id="reg-finalizado" style="width:auto; transform: scale(1.3); accent-color: var(--success-color);">
-                <label for="reg-finalizado" style="margin:0; font-weight:600; cursor:pointer; color: var(--text-color);">
-                    Marcar assunto como <span style="color:var(--success-color)">CONCLUÍDO</span>
-                </label>
+
+            <div style="display:flex; gap:10px; flex-direction:column; margin-bottom:15px;">
+                <div class="form-group checkbox-row" style="background: rgba(34, 197, 94, 0.1); padding: 10px; border-radius: 8px; border: 1px solid var(--success-color);">
+                    <input type="checkbox" id="reg-finalizado" style="width:auto; transform: scale(1.3); accent-color: var(--success-color);">
+                    <label for="reg-finalizado" style="margin:0; font-weight:600; cursor:pointer; color: var(--text-color);">
+                        Marcar assunto como <span style="color:var(--success-color)">CONCLUÍDO</span>
+                    </label>
+                </div>
+
+                <div class="form-group checkbox-row" style="background: rgba(245, 158, 11, 0.1); padding: 10px; border-radius: 8px; border: 1px solid var(--warning-color);">
+                    <input type="checkbox" id="reg-agendar-revisoes" checked style="width:auto; transform: scale(1.3); accent-color: var(--warning-color);">
+                    <label for="reg-agendar-revisoes" style="margin:0; font-weight:600; cursor:pointer; color: var(--text-color);">
+                        Agendar revisões (1d, 7d, 30d) <i class="ph ph-calendar-plus" style="margin-left:5px;"></i>
+                    </label>
+                </div>
             </div>
+
             <div class="form-grid">
                 <div class="form-group">
                     <label>Total de Questões</label>
