@@ -609,7 +609,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 sugestaoAssunto = "Sem assuntos cadastrados";
             }
 
-            // Sanitiza strings
             const safeDisc = escapeQuotes(disc);
             const safeAssunto = (sugestaoAssunto !== "Todos concluídos!" && sugestaoAssunto !== "Sem assuntos cadastrados") 
                 ? escapeQuotes(sugestaoAssunto) 
@@ -920,6 +919,55 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // ===== 12. CONFIG CICLO (DENTRO DO EDITAL) =====
 
+    // ATUALIZADO: Configuração de Ciclo com Filtro de "0" para Trilhas
+    const btnGerarCiclo = document.getElementById('gerar-ciclo-btn');
+    if(btnGerarCiclo) btnGerarCiclo.addEventListener('click', () => { 
+        const edital = getCurrentEdital();
+        if(!edital) return alert("Crie um edital primeiro!");
+
+        const porDia = parseInt(document.getElementById('ciclo-disciplinas-por-dia').value); 
+        const metaHoras = parseInt(document.getElementById('config-meta-horas').value); 
+        let deck = []; 
+        
+        if (edital.isTrilha) {
+            // 1. Captura disciplinas permitidas (valor > 0 no input)
+            const allowedDisciplines = [];
+            document.querySelectorAll('.ciclo-peso').forEach(input => {
+                if (parseInt(input.value) > 0) {
+                    allowedDisciplines.push(input.dataset.nome);
+                }
+            });
+
+            if (allowedDisciplines.length === 0) return alert("Selecione pelo menos uma disciplina (valor > 0).");
+
+            let allTasks = [];
+            edital.disciplinas.forEach(d => {
+                // 2. Filtra: Só inclui assuntos se a disciplina estiver permitida
+                if (allowedDisciplines.includes(d.nome)) {
+                    d.assuntos.forEach(a => {
+                        allTasks.push({ nomeDisc: d.nome, assunto: a, taskNum: getTaskNumber(a) });
+                    });
+                }
+            });
+
+            // 3. Ordena e gera o deck
+            allTasks.sort((a, b) => a.taskNum - b.taskNum);
+            deck = allTasks.map(t => t.nomeDisc);
+            
+        } else {
+            document.querySelectorAll('.ciclo-peso').forEach(i => { 
+                const qtd = parseInt(i.value); for(let k=0; k<qtd; k++) deck.push(i.dataset.nome); 
+            }); 
+            
+            if(deck.length === 0) return alert("Selecione disciplinas."); 
+            for (let i = deck.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [deck[i], deck[j]] = [deck[j], deck[i]]; } 
+        }
+        
+        edital.ciclo = { deck, disciplinasPorDia: porDia, metaHoras: metaHoras }; 
+        saveData(); renderCicloFila(edital); renderCicloPreview(edital); 
+        alert("Nova fila gerada para este edital!"); 
+    });
+
     const renderCicloConfig = () => { 
         const edital = getCurrentEdital();
         const container = document.getElementById('ciclo-disciplinas-selecao'); 
@@ -950,39 +998,6 @@ document.addEventListener('DOMContentLoaded', () => {
         } 
         list.innerHTML = html; 
     };
-    
-    const btnGerarCiclo = document.getElementById('gerar-ciclo-btn');
-    if(btnGerarCiclo) btnGerarCiclo.addEventListener('click', () => { 
-        const edital = getCurrentEdital();
-        if(!edital) return alert("Crie um edital primeiro!");
-
-        const porDia = parseInt(document.getElementById('ciclo-disciplinas-por-dia').value); 
-        const metaHoras = parseInt(document.getElementById('config-meta-horas').value); 
-        let deck = []; 
-        
-        if (edital.isTrilha) {
-            let allTasks = [];
-            edital.disciplinas.forEach(d => {
-                d.assuntos.forEach(a => {
-                    allTasks.push({ nomeDisc: d.nome, assunto: a, taskNum: getTaskNumber(a) });
-                });
-            });
-            allTasks.sort((a, b) => a.taskNum - b.taskNum);
-            deck = allTasks.map(t => t.nomeDisc);
-            
-        } else {
-            document.querySelectorAll('.ciclo-peso').forEach(i => { 
-                const qtd = parseInt(i.value); for(let k=0; k<qtd; k++) deck.push(i.dataset.nome); 
-            }); 
-            
-            if(deck.length === 0) return alert("Selecione disciplinas."); 
-            for (let i = deck.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [deck[i], deck[j]] = [deck[j], deck[i]]; } 
-        }
-        
-        edital.ciclo = { deck, disciplinasPorDia: porDia, metaHoras: metaHoras }; 
-        saveData(); renderCicloFila(edital); renderCicloPreview(edital); 
-        alert("Nova fila gerada para este edital!"); 
-    });
 
     // ===== 13. REGISTRO MANUAL =====
 
