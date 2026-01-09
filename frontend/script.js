@@ -691,7 +691,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 editalId: editalIdRef,
                 data: getTodayDate(), 
                 disciplina: originalStudy.disciplina, 
-                assunto: originalStudy.assunto + " (Rev)", 
+                // CORREÇÃO: Removemos o + " (Rev)" para contar no assunto original
+                assunto: originalStudy.assunto, 
                 total: questoes, 
                 acertos: acertos, 
                 percentual: (acertos/questoes)*100, 
@@ -703,7 +704,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 editalId: editalIdRef,
                 data: getTodayDate(), 
                 disciplina: originalStudy.disciplina, 
-                assunto: originalStudy.assunto + " (Rev)", 
+                // CORREÇÃO: Removemos o + " (Rev)" para contar no assunto original
+                assunto: originalStudy.assunto, 
                 tempoMinutos: tempo, 
                 tipo: 'revisao' 
             });
