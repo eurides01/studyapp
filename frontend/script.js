@@ -735,7 +735,14 @@ document.addEventListener('DOMContentLoaded', () => {
             const safeDiscName = escapeQuotes(d.nome);
 
             div.innerHTML = `
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;"><h4 style="margin:0">${d.nome}</h4><button class="icon-action-btn btn-trash" onclick="delDisc('${d.id}')" title="Excluir Disciplina"><i class="ph ph-trash"></i></button></div>
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                    <div style="display:flex; align-items:center; gap:10px;">
+                        <h4 style="margin:0">${d.nome}</h4>
+                        <button class="icon-action-btn" onclick="editDisc('${d.id}')" title="Editar Nome da Disciplina" style="width:28px; height:28px; font-size:0.9rem;"><i class="ph ph-pencil-simple"></i></button>
+                    </div>
+                    <button class="icon-action-btn btn-trash" onclick="delDisc('${d.id}')" title="Excluir Disciplina"><i class="ph ph-trash"></i></button>
+                </div>
+
                 <div style="display:flex; justify-content:space-between; font-size:0.85rem; color:var(--text-light); margin-bottom:5px;"><span>Progresso Concluído</span><span>${qtdEstudada}/${totalAssuntos} (${Math.round(pct)}%)</span></div>
                 <div class="progress-bar-bg" style="margin-top:0; margin-bottom:15px;"><div style="width:${pct}%; height:100%; background:var(--success-color); transition: width 0.5s;"></div></div>
                 <ul class="assuntos-list">${d.assuntos.map(a => {
@@ -766,6 +773,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             ${time > 0 ? `<span class="stat-pill"><i class="ph ph-timer"></i> <strong>${time}m</strong></span>` : ''}
                         </div>
                         <div class="assunto-actions">
+                            <button class="icon-action-btn" onclick="editAss('${d.id}', '${safeAssunto}')" title="Editar Nome do Assunto" style="margin-right:5px;"><i class="ph ph-pencil-simple"></i></button>
                             <button class="icon-action-btn btn-check-manual ${btnActive}" onclick="${clickAction}" title="${isStudied ? 'Desmarcar' : 'Concluir e Registrar'}"><i class="ph ph-check"></i></button>
                             <button class="icon-action-btn btn-trash" onclick="delAss('${d.id}','${safeAssunto}')" title="Excluir Assunto"><i class="ph ph-trash"></i></button>
                         </div>
@@ -799,6 +807,55 @@ document.addEventListener('DOMContentLoaded', () => {
             saveData(); renderDisciplinas(); 
         }
     };
+
+    window.editDisc = (id) => {
+        const edital = getCurrentEdital();
+        if (!edital) return;
+
+        const d = edital.disciplinas.find(x => x.id === id);
+        if (!d) return;
+
+        const novoNome = prompt("Novo nome para a disciplina:", d.nome);
+        
+        if (novoNome && novoNome.trim() !== "" && novoNome !== d.nome) {
+            const nomeAntigo = d.nome;
+            const nomeNovo = novoNome.trim();
+
+            // 1. Atualiza no objeto da disciplina
+            d.nome = nomeNovo;
+
+            // 2. Atualiza histórico de ESTUDOS (questões)
+            db.estudos.forEach(e => {
+                if ((!e.editalId || e.editalId === edital.id) && e.disciplina === nomeAntigo) {
+                    e.disciplina = nomeNovo;
+                }
+            });
+
+            // 3. Atualiza histórico de TEMPO
+            db.tempoEstudos.forEach(t => {
+                if ((!t.editalId || t.editalId === edital.id) && t.disciplina === nomeAntigo) {
+                    t.disciplina = nomeNovo;
+                }
+            });
+
+            // 4. Atualiza concluídos manuais
+            db.assuntosManuais.forEach(m => {
+                if ((!m.editalId || m.editalId === edital.id) && m.disciplina === nomeAntigo) {
+                    m.disciplina = nomeNovo;
+                }
+            });
+
+            // 5. Atualiza o CICLO (deck) se houver
+            if (edital.ciclo && edital.ciclo.deck) {
+                edital.ciclo.deck = edital.ciclo.deck.map(item => item === nomeAntigo ? nomeNovo : item);
+            }
+
+            saveData();
+            renderDisciplinas();
+            renderHomePage(); // Atualiza dashboard caso tenha mudado algo lá
+            alert("Disciplina renomeada e histórico atualizado!");
+        }
+    };
     
     window.delAss = (id, a) => { 
         if(confirm('Excluir assunto?')) { 
@@ -806,6 +863,61 @@ document.addEventListener('DOMContentLoaded', () => {
             const d = edital.disciplinas.find(x => x.id === id); 
             if(d) d.assuntos = d.assuntos.filter(x => x !== a);
             saveData(); renderDisciplinas(); 
+        }
+    };
+
+    window.editAss = (discId, nomeAssuntoAntigo) => {
+        const edital = getCurrentEdital();
+        if (!edital) return;
+
+        const d = edital.disciplinas.find(x => x.id === discId);
+        if (!d) return;
+
+        // Decodifica caracteres HTML caso venha do onclick (ex: &quot;)
+        const div = document.createElement('div');
+        div.innerHTML = nomeAssuntoAntigo;
+        const nomeRealAntigo = div.innerText;
+
+        const novoNome = prompt("Novo nome para o assunto:", nomeRealAntigo);
+
+        if (novoNome && novoNome.trim() !== "" && novoNome !== nomeRealAntigo) {
+            const nomeNovo = novoNome.trim();
+            
+            // Verifica se já existe
+            if (d.assuntos.includes(nomeNovo)) {
+                return alert("Já existe um assunto com este nome nesta disciplina.");
+            }
+
+            // 1. Atualiza na lista de assuntos
+            const index = d.assuntos.indexOf(nomeRealAntigo);
+            if (index !== -1) {
+                d.assuntos[index] = nomeNovo;
+            }
+
+            // 2. Atualiza histórico de ESTUDOS
+            db.estudos.forEach(e => {
+                if ((!e.editalId || e.editalId === edital.id) && e.disciplina === d.nome && e.assunto === nomeRealAntigo) {
+                    e.assunto = nomeNovo;
+                }
+            });
+
+            // 3. Atualiza histórico de TEMPO
+            db.tempoEstudos.forEach(t => {
+                if ((!t.editalId || t.editalId === edital.id) && t.disciplina === d.nome && t.assunto === nomeRealAntigo) {
+                    t.assunto = nomeNovo;
+                }
+            });
+
+            // 4. Atualiza concluídos manuais
+            db.assuntosManuais.forEach(m => {
+                if ((!m.editalId || m.editalId === edital.id) && m.disciplina === d.nome && m.assunto === nomeRealAntigo) {
+                    m.assunto = nomeNovo;
+                }
+            });
+
+            saveData();
+            renderDisciplinas();
+            renderHomePage();
         }
     };
     
