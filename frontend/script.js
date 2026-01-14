@@ -1,5 +1,16 @@
 document.addEventListener('DOMContentLoaded', () => {
 
+    // ===== 0. INJEÇÃO DE CSS (PARA O BOTÃO EDITAR FICAR BONITO) =====
+    // Adicionamos isso aqui para garantir o visual sem precisar mexer no style.css
+    const styleSheet = document.createElement("style");
+    styleSheet.innerText = `
+        .btn-edit { color: var(--text-light); transition: all 0.2s; }
+        .btn-edit:hover { color: var(--primary-color); background-color: rgba(79, 70, 229, 0.1); transform: scale(1.1); }
+        .icon-action-btn { width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border-radius: 6px; border: none; background: transparent; cursor: pointer; font-size: 1.1rem; }
+        .icon-action-btn:hover { background-color: rgba(0,0,0,0.05); }
+    `;
+    document.head.appendChild(styleSheet);
+
     // ===== 1. CONFIGURAÇÃO DA API =====
     const API_URL = window.location.hostname.includes('localhost') || window.location.hostname.includes('127.0.0.1')
         ? 'http://localhost:5000/api'
@@ -164,15 +175,20 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (err) { console.error("Erro loadData", err); }
     };
 
+    // CORREÇÃO: saveData agora espera resposta e joga erro se falhar
     const saveData = async () => {
         if(!authToken) return;
         try {
-            await fetch(`${API_URL}/data`, {
+            const res = await fetch(`${API_URL}/data`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'x-auth-token': authToken },
                 body: JSON.stringify(db)
             });
-        } catch (err) { console.error("Erro save", err); }
+            if (!res.ok) throw new Error("Falha na sincronização com o servidor.");
+        } catch (err) { 
+            console.error("Erro save", err);
+            throw err; // Repassa o erro
+        }
     };
 
     const getCurrentEdital = () => {
@@ -652,7 +668,20 @@ document.addEventListener('DOMContentLoaded', () => {
                 if(r.data === 'SEM_DATA') return;
                 const rData = r.data.includes('T') ? r.data.split('T')[0] : r.data;
                 if(!r.concluida && rData <= today) {
-                    html += `<div style="display:flex; justify-content:space-between; padding:10px; border-bottom:1px solid var(--border-color); align-items:center;"><div><strong>${e.disciplina}</strong><br><small style="color:var(--text-light)">${e.assunto} (${idx===0?'1d':idx===1?'7d':'30d'})</small></div><button class="btn-success btn-sm" onclick="openRevisaoModal('${e.id}', ${idx})"><i class="ph ph-check"></i></button></div>`;
+                    
+                    // MOSTRAR INTERVALO NA REVISÃO PENDENTE
+                    const infoIntervalo = e.intervalo 
+                        ? `<div style="font-size:0.8rem; color:var(--primary-color); margin-top:2px;"><i class="ph ph-bookmark-simple"></i> ${e.intervalo}</div>` 
+                        : '';
+
+                    html += `<div style="display:flex; justify-content:space-between; padding:10px; border-bottom:1px solid var(--border-color); align-items:center;">
+                        <div>
+                            <strong>${e.disciplina}</strong><br>
+                            <small style="color:var(--text-light)">${e.assunto} (${idx===0?'1d':idx===1?'7d':'30d'})</small>
+                            ${infoIntervalo}
+                        </div>
+                        <button class="btn-success btn-sm" onclick="openRevisaoModal('${e.id}', ${idx})"><i class="ph ph-check"></i></button>
+                    </div>`;
                 }
             });
         });
@@ -664,7 +693,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!e) return;
         document.getElementById('rev-id').value = id;
         document.getElementById('rev-idx').value = idx;
-        document.getElementById('rev-modal-assunto').textContent = `${e.disciplina} - ${e.assunto}`;
+        
+        // MOSTRAR INTERVALO NO MODAL
+        const textoIntervalo = e.intervalo ? ` (Faixa: ${e.intervalo})` : '';
+        document.getElementById('rev-modal-assunto').textContent = `${e.disciplina} - ${e.assunto}${textoIntervalo}`;
+        
         document.getElementById('rev-tempo').value = '';
         document.getElementById('rev-questoes').value = '';
         document.getElementById('rev-acertos').value = '';
@@ -672,45 +705,65 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('revisao-modal').classList.add('active');
     };
 
+    // CORREÇÃO: BOTÃO SALVAR REVISÃO COM FEEDBACK E WAIT
     const btnSalvarRev = document.getElementById('btn-salvar-revisao');
-    if(btnSalvarRev) btnSalvarRev.addEventListener('click', () => {
-        const id = document.getElementById('rev-id').value;
-        const idx = parseInt(document.getElementById('rev-idx').value);
-        const tempo = parseInt(document.getElementById('rev-tempo').value) || 0;
-        const questoes = parseInt(document.getElementById('rev-questoes').value) || 0;
-        const acertos = parseInt(document.getElementById('rev-acertos').value) || 0;
-        
-        const originalStudy = db.estudos.find(x => x.id === id);
-        if (originalStudy && originalStudy.revisoes[idx]) {
-            originalStudy.revisoes[idx].concluida = true;
-            
-            const editalIdRef = originalStudy.editalId || currentEditalId;
+    if(btnSalvarRev) btnSalvarRev.addEventListener('click', async () => {
+        const btn = btnSalvarRev;
+        const originalText = btn.textContent;
 
-            if (questoes > 0) db.estudos.push({ 
-                id: Date.now().toString() + '_revQ', 
-                editalId: editalIdRef,
-                data: getTodayDate(), 
-                disciplina: originalStudy.disciplina, 
-                // CORREÇÃO: Removemos o + " (Rev)" para contar no assunto original
-                assunto: originalStudy.assunto, 
-                total: questoes, 
-                acertos: acertos, 
-                percentual: (acertos/questoes)*100, 
-                revisoes: [] 
-            });
+        try {
+            const id = document.getElementById('rev-id').value;
+            const idx = parseInt(document.getElementById('rev-idx').value);
+            const tempo = parseInt(document.getElementById('rev-tempo').value) || 0;
+            const questoes = parseInt(document.getElementById('rev-questoes').value) || 0;
+            const acertos = parseInt(document.getElementById('rev-acertos').value) || 0;
             
-            if (tempo > 0) db.tempoEstudos.push({ 
-                id: Date.now().toString() + '_revT', 
-                editalId: editalIdRef,
-                data: getTodayDate(), 
-                disciplina: originalStudy.disciplina, 
-                // CORREÇÃO: Removemos o + " (Rev)" para contar no assunto original
-                assunto: originalStudy.assunto, 
-                tempoMinutos: tempo, 
-                tipo: 'revisao' 
-            });
-            
-            saveData(); renderHomePage(); modalBackdrop.classList.remove('active'); document.getElementById('revisao-modal').classList.remove('active'); alert("Revisão concluída!");
+            const originalStudy = db.estudos.find(x => x.id === id);
+            if (originalStudy && originalStudy.revisoes[idx]) {
+                originalStudy.revisoes[idx].concluida = true;
+                
+                const editalIdRef = originalStudy.editalId || currentEditalId;
+
+                if (questoes > 0) db.estudos.push({ 
+                    id: Date.now().toString() + '_revQ', 
+                    editalId: editalIdRef,
+                    data: getTodayDate(), 
+                    disciplina: originalStudy.disciplina, 
+                    // CORREÇÃO: Removemos o + " (Rev)" para contar no assunto original
+                    assunto: originalStudy.assunto, 
+                    total: questoes, 
+                    acertos: acertos, 
+                    percentual: (acertos/questoes)*100, 
+                    revisoes: [] 
+                });
+                
+                if (tempo > 0) db.tempoEstudos.push({ 
+                    id: Date.now().toString() + '_revT', 
+                    editalId: editalIdRef,
+                    data: getTodayDate(), 
+                    disciplina: originalStudy.disciplina, 
+                    // CORREÇÃO: Removemos o + " (Rev)" para contar no assunto original
+                    assunto: originalStudy.assunto, 
+                    tempoMinutos: tempo, 
+                    tipo: 'revisao' 
+                });
+                
+                btn.textContent = "Salvando...";
+                btn.disabled = true;
+
+                await saveData(); 
+
+                renderHomePage(); 
+                modalBackdrop.classList.remove('active'); 
+                document.getElementById('revisao-modal').classList.remove('active'); 
+                alert("Revisão concluída!");
+            }
+        } catch (e) {
+            console.error(e);
+            alert("Erro ao salvar revisão: " + e.message);
+        } finally {
+            btn.textContent = originalText;
+            btn.disabled = false;
         }
     });
 
@@ -738,7 +791,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
                     <div style="display:flex; align-items:center; gap:10px;">
                         <h4 style="margin:0">${d.nome}</h4>
-                        <button class="icon-action-btn" onclick="editDisc('${d.id}')" title="Editar Nome da Disciplina" style="width:28px; height:28px; font-size:0.9rem;"><i class="ph ph-pencil-simple"></i></button>
+                        <button class="icon-action-btn btn-edit" onclick="editDisc('${d.id}')" title="Editar Nome da Disciplina"><i class="ph ph-pencil-simple"></i></button>
                     </div>
                     <button class="icon-action-btn btn-trash" onclick="delDisc('${d.id}')" title="Excluir Disciplina"><i class="ph ph-trash"></i></button>
                 </div>
@@ -773,7 +826,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             ${time > 0 ? `<span class="stat-pill"><i class="ph ph-timer"></i> <strong>${time}m</strong></span>` : ''}
                         </div>
                         <div class="assunto-actions">
-                            <button class="icon-action-btn" onclick="editAss('${d.id}', '${safeAssunto}')" title="Editar Nome do Assunto" style="margin-right:5px;"><i class="ph ph-pencil-simple"></i></button>
+                            <button class="icon-action-btn btn-edit" onclick="editAss('${d.id}', '${safeAssunto}')" title="Editar Nome do Assunto" style="margin-right:5px;"><i class="ph ph-pencil-simple"></i></button>
                             <button class="icon-action-btn btn-check-manual ${btnActive}" onclick="${clickAction}" title="${isStudied ? 'Desmarcar' : 'Concluir e Registrar'}"><i class="ph ph-check"></i></button>
                             <button class="icon-action-btn btn-trash" onclick="delAss('${d.id}','${safeAssunto}')" title="Excluir Assunto"><i class="ph ph-trash"></i></button>
                         </div>
@@ -821,38 +874,15 @@ document.addEventListener('DOMContentLoaded', () => {
             const nomeAntigo = d.nome;
             const nomeNovo = novoNome.trim();
 
-            // 1. Atualiza no objeto da disciplina
             d.nome = nomeNovo;
-
-            // 2. Atualiza histórico de ESTUDOS (questões)
-            db.estudos.forEach(e => {
-                if ((!e.editalId || e.editalId === edital.id) && e.disciplina === nomeAntigo) {
-                    e.disciplina = nomeNovo;
-                }
-            });
-
-            // 3. Atualiza histórico de TEMPO
-            db.tempoEstudos.forEach(t => {
-                if ((!t.editalId || t.editalId === edital.id) && t.disciplina === nomeAntigo) {
-                    t.disciplina = nomeNovo;
-                }
-            });
-
-            // 4. Atualiza concluídos manuais
-            db.assuntosManuais.forEach(m => {
-                if ((!m.editalId || m.editalId === edital.id) && m.disciplina === nomeAntigo) {
-                    m.disciplina = nomeNovo;
-                }
-            });
-
-            // 5. Atualiza o CICLO (deck) se houver
-            if (edital.ciclo && edital.ciclo.deck) {
-                edital.ciclo.deck = edital.ciclo.deck.map(item => item === nomeAntigo ? nomeNovo : item);
-            }
+            db.estudos.forEach(e => { if ((!e.editalId || e.editalId === edital.id) && e.disciplina === nomeAntigo) e.disciplina = nomeNovo; });
+            db.tempoEstudos.forEach(t => { if ((!t.editalId || t.editalId === edital.id) && t.disciplina === nomeAntigo) t.disciplina = nomeNovo; });
+            db.assuntosManuais.forEach(m => { if ((!m.editalId || m.editalId === edital.id) && m.disciplina === nomeAntigo) m.disciplina = nomeNovo; });
+            if (edital.ciclo && edital.ciclo.deck) { edital.ciclo.deck = edital.ciclo.deck.map(item => item === nomeAntigo ? nomeNovo : item); }
 
             saveData();
             renderDisciplinas();
-            renderHomePage(); // Atualiza dashboard caso tenha mudado algo lá
+            renderHomePage(); 
             alert("Disciplina renomeada e histórico atualizado!");
         }
     };
@@ -873,7 +903,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const d = edital.disciplinas.find(x => x.id === discId);
         if (!d) return;
 
-        // Decodifica caracteres HTML caso venha do onclick (ex: &quot;)
         const div = document.createElement('div');
         div.innerHTML = nomeAssuntoAntigo;
         const nomeRealAntigo = div.innerText;
@@ -882,38 +911,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (novoNome && novoNome.trim() !== "" && novoNome !== nomeRealAntigo) {
             const nomeNovo = novoNome.trim();
-            
-            // Verifica se já existe
-            if (d.assuntos.includes(nomeNovo)) {
-                return alert("Já existe um assunto com este nome nesta disciplina.");
-            }
+            if (d.assuntos.includes(nomeNovo)) return alert("Já existe um assunto com este nome nesta disciplina.");
 
-            // 1. Atualiza na lista de assuntos
             const index = d.assuntos.indexOf(nomeRealAntigo);
-            if (index !== -1) {
-                d.assuntos[index] = nomeNovo;
-            }
+            if (index !== -1) d.assuntos[index] = nomeNovo;
 
-            // 2. Atualiza histórico de ESTUDOS
-            db.estudos.forEach(e => {
-                if ((!e.editalId || e.editalId === edital.id) && e.disciplina === d.nome && e.assunto === nomeRealAntigo) {
-                    e.assunto = nomeNovo;
-                }
-            });
-
-            // 3. Atualiza histórico de TEMPO
-            db.tempoEstudos.forEach(t => {
-                if ((!t.editalId || t.editalId === edital.id) && t.disciplina === d.nome && t.assunto === nomeRealAntigo) {
-                    t.assunto = nomeNovo;
-                }
-            });
-
-            // 4. Atualiza concluídos manuais
-            db.assuntosManuais.forEach(m => {
-                if ((!m.editalId || m.editalId === edital.id) && m.disciplina === d.nome && m.assunto === nomeRealAntigo) {
-                    m.assunto = nomeNovo;
-                }
-            });
+            db.estudos.forEach(e => { if ((!e.editalId || e.editalId === edital.id) && e.disciplina === d.nome && e.assunto === nomeRealAntigo) e.assunto = nomeNovo; });
+            db.tempoEstudos.forEach(t => { if ((!t.editalId || t.editalId === edital.id) && t.disciplina === d.nome && t.assunto === nomeRealAntigo) t.assunto = nomeNovo; });
+            db.assuntosManuais.forEach(m => { if ((!m.editalId || m.editalId === edital.id) && m.disciplina === d.nome && m.assunto === nomeRealAntigo) m.assunto = nomeNovo; });
 
             saveData();
             renderDisciplinas();
@@ -1129,6 +1134,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const semDataCheckbox = document.getElementById('reg-sem-data');
         
         document.getElementById('reg-novo-assunto').value = ''; 
+        
+        // LIMPAR NOVOS CAMPOS
+        document.getElementById('reg-inicio').value = '';
+        document.getElementById('reg-fim').value = '';
+
         document.getElementById('reg-questoes').value = ''; 
         document.getElementById('reg-acertos').value = ''; 
         document.getElementById('reg-tempo').value = '';
@@ -1201,8 +1211,12 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
+    // CORREÇÃO: BOTÃO SALVAR REGISTRO COM FEEDBACK E WAIT
     const btnSalvarRegistro = document.getElementById('btn-salvar-registro');
-    if(btnSalvarRegistro) btnSalvarRegistro.addEventListener('click', () => {
+    if(btnSalvarRegistro) btnSalvarRegistro.addEventListener('click', async () => {
+        const btn = btnSalvarRegistro;
+        const originalText = btn.textContent;
+        
         try {
             const disc = document.getElementById('reg-disciplina-hidden').value; 
             const novoAssunto = document.getElementById('reg-novo-assunto').value.trim(); 
@@ -1212,15 +1226,19 @@ document.addEventListener('DOMContentLoaded', () => {
             const edital = getCurrentEdital();
             
             const semData = document.getElementById('reg-sem-data').checked;
-            let dataRegistro;
-            if(semData) {
-                dataRegistro = 'SEM_DATA';
-            } else {
-                dataRegistro = document.getElementById('reg-data-input').value || getTodayDate();
+            let dataRegistro = semData ? 'SEM_DATA' : (document.getElementById('reg-data-input').value || getTodayDate());
+
+            if (!disc) return alert("Selecione disciplina.");
+            
+            // CAPTURAR CAMPOS DE INTERVALO
+            const pgInicio = document.getElementById('reg-inicio').value.trim();
+            const pgFim = document.getElementById('reg-fim').value.trim();
+            let intervaloStr = null;
+            if(pgInicio || pgFim) {
+                intervaloStr = `${pgInicio || '?'} até ${pgFim || '?'}`;
             }
 
-            let assuntoFinal = ""; if (!disc) return alert("Selecione disciplina.");
-            
+            let assuntoFinal = ""; 
             if (novoAssunto) { 
                 assuntoFinal = novoAssunto; 
                 const dObj = edital.disciplinas.find(d => d.nome === disc); 
@@ -1249,7 +1267,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 editalId: edital.id, 
                 data: dataRegistro, 
                 disciplina: disc, 
-                assunto: assuntoFinal, 
+                assunto: assuntoFinal,
+                intervalo: intervaloStr, // SALVANDO O INTERVALO
                 total: totalQ, 
                 acertos: totalA, 
                 percentual: totalQ > 0 ? (totalA/totalQ)*100 : 0, 
@@ -1278,20 +1297,22 @@ document.addEventListener('DOMContentLoaded', () => {
                 rotateCycle(disc); 
             }
             
-            saveData().catch(err => {
-                console.error("Erro ao salvar:", err);
-                alert("Erro ao salvar no servidor. Verifique o console.");
-            }); 
-            
+            btn.textContent = "Salvando...";
+            btn.disabled = true;
+
+            await saveData(); // Espera servidor confirmar
+
+            renderHomePage(); 
             modalBackdrop.classList.remove('active'); 
             document.getElementById('registro-modal').classList.remove('active'); 
-            
-            renderHomePage(); 
+            alert("Salvo com sucesso!");
 
-            alert("Salvo!");
         } catch (e) {
             console.error(e);
-            alert("Ocorreu um erro ao processar o registro: " + e.message);
+            alert("Erro ao salvar: " + (e.message || "Verifique sua conexão."));
+        } finally {
+            btn.textContent = originalText;
+            btn.disabled = false;
         }
     });
 
@@ -1441,6 +1462,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 ? `${e.acertos}/${e.total} acertos (<strong style="color:${e.percentual>=80?'var(--success-color)':e.percentual<50?'var(--danger-color)':'var(--warning-color)'}">${Math.round(e.percentual)}%</strong>)` 
                 : `<span style="color:var(--secondary-color); font-style:italic;">Estudo Teórico / Leitura</span>`;
 
+            // MOSTRAR INTERVALO NO HISTÓRICO
+            const htmlIntervalo = e.intervalo 
+                ? `<div style="font-size:0.8rem; color:var(--secondary-color);"><i class="ph ph-bookmark-simple"></i> ${e.intervalo}</div>` 
+                : '';
+
             return `
             <div style="padding:12px; border-bottom:1px solid var(--border-color); display:flex; flex-direction:column; gap:4px;">
                 <div style="display:flex; justify-content:space-between;">
@@ -1448,6 +1474,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     <span style="font-size:0.8rem; color:var(--text-light);">${dataF}</span>
                 </div>
                 <div style="color:var(--text-color); font-size:0.9rem;">${e.assunto}</div>
+                ${htmlIntervalo}
                 <div style="font-size:0.85rem; color:var(--text-light);">${desempenho}</div>
                 ${revBadge}
             </div>`; 

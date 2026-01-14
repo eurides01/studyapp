@@ -84,7 +84,8 @@ h3 { margin-bottom: 1rem; font-weight: 600; color: var(--text-color); font-size:
 .nav-link { text-decoration: none; color: var(--text-light); font-weight: 500; padding: 0.5rem 0; border-bottom: 2px solid transparent; transition: all 0.2s; font-size: 0.95rem; display: flex; align-items: center; gap: 6px; }
 .nav-link:hover, .nav-link.active { color: var(--primary-color); border-bottom-color: var(--primary-color); }
 
-.nav-controls { display: flex; gap: 0.8rem; align-items: center; }
+/* CORREÇÃO: flex-shrink: 0 impede que os botões sejam esmagados */
+.nav-controls { display: flex; gap: 0.8rem; align-items: center; flex-shrink: 0; }
 
 .icon-btn {
     background: transparent; border: 1px solid var(--border-color); 
@@ -327,7 +328,7 @@ button:hover { filter: brightness(0.95); transform: translateY(-1px); }
 @keyframes fadeOut { to { opacity: 0; } }
 .empty-state { text-align: center; color: var(--text-light); padding: 30px; font-style: italic; }
 
-@media (max-width: 768px) {
+@media (max-width: 1024px) {
     /* Menu Hamburguer Ativo */
     .nav-links { display: none; position: absolute; top: 65px; left: 0; width: 100%; background: var(--card-bg); flex-direction: column; padding: 1.5rem; box-shadow: var(--shadow); border-bottom: 1px solid var(--border-color); }
     .nav-links.show { display: flex; }
@@ -357,6 +358,12 @@ button:hover { filter: brightness(0.95); transform: translateY(-1px); }
     .assunto-stats { width: 100%; margin: 0; gap: 5px; }
     .summary-card.timer-trigger { order: -1; margin-bottom: 10px; }
 }
+/* CORREÇÃO: Esconde a marca em celulares muito pequenos para caber os botões */
+@media (max-width: 400px) {
+    .nav-brand { display: none; }
+    .nav-select { max-width: 120px; }
+}
+
 /* --- ANIMAÇÃO MENU --- */
 @keyframes slideDown {
     from { opacity: 0; transform: translateY(-10px); }
