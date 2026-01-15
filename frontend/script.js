@@ -1,7 +1,6 @@
 document.addEventListener('DOMContentLoaded', () => {
 
-    // ===== 0. INJEÇÃO DE CSS (PARA O BOTÃO EDITAR FICAR BONITO) =====
-    // Adicionamos isso aqui para garantir o visual sem precisar mexer no style.css
+    // ===== 0. INJEÇÃO DE CSS =====
     const styleSheet = document.createElement("style");
     styleSheet.innerText = `
         .btn-edit { color: var(--text-light); transition: all 0.2s; }
@@ -52,7 +51,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const editalSelector = document.getElementById('edital-selector');
     const navEditalSelector = document.getElementById('navbar-edital-select');
     
-    // ===== HELPER: SANITIZAR STRINGS PARA ONCLICK =====
+    // ===== HELPER: SANITIZAR STRINGS =====
     const escapeQuotes = (str) => {
         if (!str) return '';
         return str.replace(/'/g, "\\'").replace(/"/g, '&quot;');
@@ -175,7 +174,6 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (err) { console.error("Erro loadData", err); }
     };
 
-    // CORREÇÃO: saveData agora espera resposta e joga erro se falhar
     const saveData = async () => {
         if(!authToken) return;
         try {
@@ -187,7 +185,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!res.ok) throw new Error("Falha na sincronização com o servidor.");
         } catch (err) { 
             console.error("Erro save", err);
-            throw err; // Repassa o erro
+            throw err; 
         }
     };
 
@@ -565,7 +563,9 @@ document.addEventListener('DOMContentLoaded', () => {
             const totalA = studies.reduce((acc, e) => acc + e.acertos, 0);
             const totalE = totalQ - totalA;
             const perc = totalQ > 0 ? Math.round((totalA / totalQ) * 100) : 0;
-            const totalMins = times.reduce((acc, t) => acc + t.tempoMinutos, 0);
+            
+            // CORREÇÃO: Forçar Number e valor default 0 para evitar strings ou NaN
+            const totalMins = times.reduce((acc, t) => acc + (Number(t.tempoMinutos) || 0), 0);
             
             let color = 'var(--text-color)';
             if (totalQ > 0) {
@@ -669,7 +669,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 const rData = r.data.includes('T') ? r.data.split('T')[0] : r.data;
                 if(!r.concluida && rData <= today) {
                     
-                    // MOSTRAR INTERVALO NA REVISÃO PENDENTE
                     const infoIntervalo = e.intervalo 
                         ? `<div style="font-size:0.8rem; color:var(--primary-color); margin-top:2px;"><i class="ph ph-bookmark-simple"></i> ${e.intervalo}</div>` 
                         : '';
@@ -694,7 +693,6 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('rev-id').value = id;
         document.getElementById('rev-idx').value = idx;
         
-        // MOSTRAR INTERVALO NO MODAL
         const textoIntervalo = e.intervalo ? ` (Faixa: ${e.intervalo})` : '';
         document.getElementById('rev-modal-assunto').textContent = `${e.disciplina} - ${e.assunto}${textoIntervalo}`;
         
@@ -705,7 +703,6 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('revisao-modal').classList.add('active');
     };
 
-    // CORREÇÃO: BOTÃO SALVAR REVISÃO COM FEEDBACK E WAIT
     const btnSalvarRev = document.getElementById('btn-salvar-revisao');
     if(btnSalvarRev) btnSalvarRev.addEventListener('click', async () => {
         const btn = btnSalvarRev;
@@ -729,11 +726,11 @@ document.addEventListener('DOMContentLoaded', () => {
                     editalId: editalIdRef,
                     data: getTodayDate(), 
                     disciplina: originalStudy.disciplina, 
-                    // CORREÇÃO: Removemos o + " (Rev)" para contar no assunto original
                     assunto: originalStudy.assunto, 
                     total: questoes, 
                     acertos: acertos, 
-                    percentual: (acertos/questoes)*100, 
+                    percentual: (acertos/questoes)*100,
+                    tempo: tempo, 
                     revisoes: [] 
                 });
                 
@@ -742,7 +739,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     editalId: editalIdRef,
                     data: getTodayDate(), 
                     disciplina: originalStudy.disciplina, 
-                    // CORREÇÃO: Removemos o + " (Rev)" para contar no assunto original
                     assunto: originalStudy.assunto, 
                     tempoMinutos: tempo, 
                     tipo: 'revisao' 
@@ -1249,6 +1245,7 @@ document.addEventListener('DOMContentLoaded', () => {
             
             const totalQ = parseInt(document.getElementById('reg-questoes').value) || 0; 
             const totalA = parseInt(document.getElementById('reg-acertos').value) || 0; 
+            // CORREÇÃO: Garantir que totalT seja número
             const totalT = parseInt(document.getElementById('reg-tempo').value) || 0;
             
             if (totalA > totalQ) return alert("Acertos > Questões.");
@@ -1268,13 +1265,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 data: dataRegistro, 
                 disciplina: disc, 
                 assunto: assuntoFinal,
-                intervalo: intervaloStr, // SALVANDO O INTERVALO
+                intervalo: intervaloStr,
                 total: totalQ, 
                 acertos: totalA, 
-                percentual: totalQ > 0 ? (totalA/totalQ)*100 : 0, 
+                percentual: totalQ > 0 ? (totalA/totalQ)*100 : 0,
+                tempo: totalT, 
                 revisoes: revisoesArray 
             }); 
             
+            // CORREÇÃO: Lógica para garantir salvamento do tempo mesmo sem questões
             if (totalT > 0 || totalQ > 0 || finalizado) { 
                 db.tempoEstudos.push({ 
                     id: Date.now().toString()+'m', 
@@ -1282,7 +1281,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     data: dataRegistro, 
                     disciplina: disc, 
                     assunto: assuntoFinal, 
-                    tempoMinutos: totalT, 
+                    tempoMinutos: Number(totalT), // Garantir Number
                     tipo: 'manual' 
                 }); 
             }
@@ -1329,8 +1328,19 @@ document.addEventListener('DOMContentLoaded', () => {
         const baseEstudos = filterStudiesByEdital(db.estudos);
         const baseTempos = filterStudiesByEdital(db.tempoEstudos);
 
-        const estudosF = baseEstudos.filter(e => { return (dFiltro === 'todas' || e.disciplina === dFiltro) && (!ini || e.data >= ini) && (!fim || e.data <= fim); });
-        const tempoF = baseTempos.filter(t => { return (dFiltro === 'todas' || t.disciplina === dFiltro) && (!ini || t.data >= ini) && (!fim || t.data <= fim); });
+        const estudosF = baseEstudos.filter(e => { 
+            const eData = e.data.includes('T') ? e.data.split('T')[0] : e.data; 
+            return (dFiltro === 'todas' || e.disciplina === dFiltro) && 
+                   (!ini || eData >= ini) && 
+                   (!fim || eData <= fim); 
+        });
+        
+        const tempoF = baseTempos.filter(t => { 
+            const tData = t.data.includes('T') ? t.data.split('T')[0] : t.data;
+            return (dFiltro === 'todas' || t.disciplina === dFiltro) && 
+                   (!ini || tData >= ini) && 
+                   (!fim || tData <= fim); 
+        });
         
         const totMin = tempoF.reduce((a,b) => a + b.tempoMinutos, 0); 
         document.getElementById('stat-total-horas').textContent = formatDuration(totMin);
@@ -1342,6 +1352,71 @@ document.addEventListener('DOMContentLoaded', () => {
         
         renderCharts(edital, estudosF, tempoF); 
         renderHistorico(estudosF, ini, fim);
+    };
+
+    // FUNÇÃO NOVA: GERAR PDF COM TEMPO
+    const generatePDF = () => {
+        const { jsPDF } = window.jspdf;
+        if (!jsPDF) return alert("Erro: Biblioteca PDF não carregada.");
+
+        const edital = getCurrentEdital();
+        if (!edital) return alert("Selecione um edital.");
+
+        const dFiltro = document.getElementById('filter-disciplina').value; 
+        const ini = document.getElementById('filter-data-inicio').value; 
+        const fim = document.getElementById('filter-data-fim').value;
+
+        const baseEstudos = filterStudiesByEdital(db.estudos);
+        const estudosF = baseEstudos.filter(e => { 
+            const eData = e.data.includes('T') ? e.data.split('T')[0] : e.data;
+            return (dFiltro === 'todas' || e.disciplina === dFiltro) && 
+                   (!ini || eData >= ini) && 
+                   (!fim || eData <= fim); 
+        }).sort((a, b) => new Date(b.data) - new Date(a.data));
+
+        if(estudosF.length === 0) return alert("Nenhum registro encontrado com os filtros atuais.");
+
+        const doc = new jsPDF();
+
+        // Título
+        doc.setFontSize(18);
+        doc.text(`Relatório de Estudos - ${edital.nome}`, 14, 20);
+        
+        doc.setFontSize(10);
+        const filtroTexto = `Gerado em: ${new Date().toLocaleDateString()} | Filtro: ${dFiltro === 'todas' ? 'Todas Disciplinas' : dFiltro}`;
+        doc.text(filtroTexto, 14, 28);
+
+        // MUDANÇA: Adicionado coluna "Tempo" e mapeamento
+        const tableBody = estudosF.map(e => [
+            formatDateBr(e.data),
+            e.disciplina,
+            e.assunto,
+            e.intervalo || "-",
+            e.tempo ? formatDuration(e.tempo) : "-", // Mostra o tempo formatado ou "-"
+            e.total > 0 ? `${e.acertos}/${e.total} (${Math.round(e.percentual)}%)` : "-",
+        ]);
+
+        doc.autoTable({
+            startY: 35,
+            head: [['Data', 'Disciplina', 'Assunto', 'Intervalo', 'Tempo', 'Desempenho']],
+            body: tableBody,
+            theme: 'striped',
+            headStyles: { fillColor: [79, 70, 229] }
+        });
+
+        doc.save(`relatorio_estudos_${getTodayDate()}.pdf`);
+    };
+
+    // EVENT LISTENERS PARA FILTROS E PDF
+    const setupStatsListeners = () => {
+        const inputs = ['filter-disciplina', 'filter-data-inicio', 'filter-data-fim'];
+        inputs.forEach(id => {
+            const el = document.getElementById(id);
+            if(el) el.addEventListener('change', renderEstatisticas);
+        });
+
+        const btnPDF = document.getElementById('btn-generate-pdf');
+        if(btnPDF) btnPDF.addEventListener('click', generatePDF);
     };
 
     const renderCharts = (edital, estudos, tempos) => {
@@ -1462,7 +1537,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 ? `${e.acertos}/${e.total} acertos (<strong style="color:${e.percentual>=80?'var(--success-color)':e.percentual<50?'var(--danger-color)':'var(--warning-color)'}">${Math.round(e.percentual)}%</strong>)` 
                 : `<span style="color:var(--secondary-color); font-style:italic;">Estudo Teórico / Leitura</span>`;
 
-            // MOSTRAR INTERVALO NO HISTÓRICO
             const htmlIntervalo = e.intervalo 
                 ? `<div style="font-size:0.8rem; color:var(--secondary-color);"><i class="ph ph-bookmark-simple"></i> ${e.intervalo}</div>` 
                 : '';
@@ -1704,6 +1778,9 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
     pages.forEach(p => observer.observe(p, { attributes: true, attributeFilter: ['class'] }));
+
+    // Configura os listeners dos filtros e botão PDF na inicialização
+    setupStatsListeners();
 
     checkAuth();
     initTimerDOM();
