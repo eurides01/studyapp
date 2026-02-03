@@ -189,6 +189,23 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
+    // --- SALVAMENTO INCREMENTAL ---
+    const saveIncremental = async (payload) => {
+        if(!authToken) return;
+        try {
+            const res = await fetch(`${API_URL}/estudos`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'x-auth-token': authToken },
+                body: JSON.stringify(payload)
+            });
+            if (!res.ok) throw new Error("Falha na sincronização parcial.");
+            return await res.json();
+        } catch (err) {
+            console.error("Erro saveIncremental", err);
+            throw err;
+        }
+    };
+
     const getCurrentEdital = () => {
         if (!currentEditalId || db.editais.length === 0) return null;
         return db.editais.find(e => e.id === currentEditalId) || null;
@@ -564,7 +581,6 @@ document.addEventListener('DOMContentLoaded', () => {
             const totalE = totalQ - totalA;
             const perc = totalQ > 0 ? Math.round((totalA / totalQ) * 100) : 0;
             
-            // CORREÇÃO: Forçar Number e valor default 0 para evitar strings ou NaN
             const totalMins = times.reduce((acc, t) => acc + (Number(t.tempoMinutos) || 0), 0);
             
             let color = 'var(--text-color)';
@@ -747,9 +763,18 @@ document.addEventListener('DOMContentLoaded', () => {
                 btn.textContent = "Salvando...";
                 btn.disabled = true;
 
+                // Salva incremental (review também é um "estudo novo" se gerou tempo/questões)
+                // Mas aqui estamos apenas atualizando o status da revisão e criando novos registros
+                // Como o "concluída: true" altera um registro antigo, vamos salvar tudo para garantir consistência
+                // Ou podemos criar um endpoint para "patchReview" futuramente.
+                // Por hora, usamos saveData() completo para revisões pois é menos frequente.
                 await saveData(); 
 
+                // ATUALIZAÇÃO GERAL DE TELAS
                 renderHomePage(); 
+                renderDisciplinas(); // <--- Atualiza lista de matérias
+                if(document.getElementById('page-estatisticas').classList.contains('active')) renderEstatisticas();
+
                 modalBackdrop.classList.remove('active'); 
                 document.getElementById('revisao-modal').classList.remove('active'); 
                 alert("Revisão concluída!");
@@ -843,6 +868,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (index > -1) { 
             db.assuntosManuais.splice(index, 1); 
             saveData(); 
+            
+            // ATUALIZAÇÃO GERAL
             renderDisciplinas(); 
             if(document.getElementById('page-estatisticas').classList.contains('active')) renderEstatisticas();
             renderHomePage(); 
@@ -1207,7 +1234,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    // CORREÇÃO: BOTÃO SALVAR REGISTRO COM FEEDBACK E WAIT
+    // CORREÇÃO: BOTÃO SALVAR REGISTRO COM SINCRONIZAÇÃO INCREMENTAL
     const btnSalvarRegistro = document.getElementById('btn-salvar-registro');
     if(btnSalvarRegistro) btnSalvarRegistro.addEventListener('click', async () => {
         const btn = btnSalvarRegistro;
@@ -1238,14 +1265,17 @@ document.addEventListener('DOMContentLoaded', () => {
             if (novoAssunto) { 
                 assuntoFinal = novoAssunto; 
                 const dObj = edital.disciplinas.find(d => d.nome === disc); 
-                if (dObj && !dObj.assuntos.includes(novoAssunto)) { dObj.assuntos.push(novoAssunto); dObj.assuntos.sort(); } 
+                if (dObj && !dObj.assuntos.includes(novoAssunto)) { 
+                    dObj.assuntos.push(novoAssunto); 
+                    dObj.assuntos.sort(); 
+                    // Nota: Alterar array de assuntos do edital exige salvamento do 'db' completo depois
+                } 
             } else if (assuntoSelecionado) { assuntoFinal = assuntoSelecionado; }
             
             if (!assuntoFinal) return alert("Selecione assunto.");
             
             const totalQ = parseInt(document.getElementById('reg-questoes').value) || 0; 
             const totalA = parseInt(document.getElementById('reg-acertos').value) || 0; 
-            // CORREÇÃO: Garantir que totalT seja número
             const totalT = parseInt(document.getElementById('reg-tempo').value) || 0;
             
             if (totalA > totalQ) return alert("Acertos > Questões.");
@@ -1259,7 +1289,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 ];
             }
 
-            db.estudos.push({ 
+            // OBJETO PRINCIPAL DO ESTUDO
+            const novoEstudo = { 
                 id: Date.now().toString(), 
                 editalId: edital.id, 
                 data: dataRegistro, 
@@ -1271,44 +1302,73 @@ document.addEventListener('DOMContentLoaded', () => {
                 percentual: totalQ > 0 ? (totalA/totalQ)*100 : 0,
                 tempo: totalT, 
                 revisoes: revisoesArray 
-            }); 
+            }; 
             
-            // CORREÇÃO: Lógica para garantir salvamento do tempo mesmo sem questões
+            // OBJETO DE TEMPO (SEPARADO)
+            let novoTempo = null;
             if (totalT > 0 || totalQ > 0 || finalizado) { 
-                db.tempoEstudos.push({ 
+                novoTempo = { 
                     id: Date.now().toString()+'m', 
                     editalId: edital.id, 
                     data: dataRegistro, 
                     disciplina: disc, 
                     assunto: assuntoFinal, 
-                    tempoMinutos: Number(totalT), // Garantir Number
+                    tempoMinutos: Number(totalT), 
                     tipo: 'manual' 
-                }); 
+                }; 
             }
             
+            // ATUALIZAÇÃO OTIMISTA: Atualiza a tela do usuário imediatamente
+            db.estudos.push(novoEstudo);
+            if (novoTempo) db.tempoEstudos.push(novoTempo);
+            
+            let precisaSalvarDBCompleto = false;
+
+            // Se marcou como finalizado ou criou novo assunto, alterou a estrutura do Edital/Manual
+            // Esses dados ainda vivem no JSON principal, então marcamos para salvar o DB completo em background
             if (finalizado) { 
                 if(!db.assuntosManuais.some(m => m.disciplina === disc && m.assunto === assuntoFinal && m.editalId === edital.id)) { 
                     db.assuntosManuais.push({disciplina: disc, assunto: assuntoFinal, editalId: edital.id}); 
+                    precisaSalvarDBCompleto = true;
                 } 
             }
+            if (novoAssunto) precisaSalvarDBCompleto = true;
             
             if (!isLegacyRegistration) {
                 rotateCycle(disc); 
+                precisaSalvarDBCompleto = true; // Girar ciclo altera configuração do edital
             }
             
-            btn.textContent = "Salvando...";
+            btn.textContent = "Sincronizando...";
             btn.disabled = true;
 
-            await saveData(); // Espera servidor confirmar
+            // 1. ENVIO LEVE (INCREMENTAL)
+            // Envia apenas o estudo e o tempo. Muito rápido.
+            await saveIncremental({ estudo: novoEstudo, tempo: novoTempo });
 
+            // 2. ENVIO PESADO (BACKGROUND)
+            // Se alterou configurações (assuntos, ciclo), salva o DB todo.
+            // Se foi só um registro comum, NÃO envia o DB gigante.
+            if (precisaSalvarDBCompleto) {
+                saveData(); // Não usamos await aqui propositalmente para não travar a UI se for lento
+            }
+
+            // ATUALIZAÇÃO GERAL DA UI (PARA TODAS AS TELAS)
             renderHomePage(); 
+            renderDisciplinas(); // <--- Atualiza lista de matérias (Checks e Stats)
+            
+            // Atualiza telas específicas se estiverem visíveis para garantir consistência imediata
+            if(document.getElementById('page-estatisticas').classList.contains('active')) renderEstatisticas();
+            if(document.getElementById('page-ciclo').classList.contains('active')) renderCicloConfig();
+
             modalBackdrop.classList.remove('active'); 
             document.getElementById('registro-modal').classList.remove('active'); 
             alert("Salvo com sucesso!");
 
         } catch (e) {
             console.error(e);
-            alert("Erro ao salvar: " + (e.message || "Verifique sua conexão."));
+            // Mesmo com erro de rede, o dado está na memória (db.estudos) e o usuário vê o resultado.
+            alert("Atenção: Erro de conexão ao sincronizar. O registro foi salvo apenas localmente por enquanto.\nErro: " + (e.message || "Desconhecido"));
         } finally {
             btn.textContent = originalText;
             btn.disabled = false;
