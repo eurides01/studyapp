@@ -209,6 +209,23 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
+    // --- ATUALIZAÇÃO LEVE DE REVISÃO (FIX DUPLICIDADE) ---
+    const updateRevisionStatus = async (studyId, revIndex) => {
+        if(!authToken) return;
+        try {
+            const res = await fetch(`${API_URL}/estudos/revisao`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json', 'x-auth-token': authToken },
+                body: JSON.stringify({ studyId, revIndex })
+            });
+            if (!res.ok) throw new Error("Falha ao atualizar revisão.");
+            return await res.json();
+        } catch (err) {
+            console.error(err);
+            throw err;
+        }
+    };
+
     const getCurrentEdital = () => {
         if (!currentEditalId || db.editais.length === 0) return null;
         return db.editais.find(e => e.id === currentEditalId) || null;
@@ -722,6 +739,7 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('revisao-modal').classList.add('active');
     };
 
+    // CORREÇÃO: BOTÃO SALVAR REVISÃO (SEM DUPLICIDADE)
     const btnSalvarRev = document.getElementById('btn-salvar-revisao');
     if(btnSalvarRev) btnSalvarRev.addEventListener('click', async () => {
         if(isSaving) return;
@@ -741,34 +759,50 @@ document.addEventListener('DOMContentLoaded', () => {
             
             const originalStudy = db.estudos.find(x => x.id === id);
             if (originalStudy && originalStudy.revisoes[idx]) {
+                // 1. Atualiza Localmente (UI instantânea)
                 originalStudy.revisoes[idx].concluida = true;
                 
                 const editalIdRef = originalStudy.editalId || currentEditalId;
+                let novoEstudoRev = null;
+                let novoTempoRev = null;
 
-                if (questoes > 0) db.estudos.push({ 
-                    id: Date.now().toString() + '_revQ', 
-                    editalId: editalIdRef,
-                    data: getTodayDate(), 
-                    disciplina: originalStudy.disciplina, 
-                    assunto: originalStudy.assunto, 
-                    total: questoes, 
-                    acertos: acertos, 
-                    percentual: (acertos/questoes)*100,
-                    tempo: tempo, 
-                    revisoes: [] 
-                });
+                if (questoes > 0) {
+                    novoEstudoRev = { 
+                        id: Date.now().toString() + '_revQ', 
+                        editalId: editalIdRef,
+                        data: getTodayDate(), 
+                        disciplina: originalStudy.disciplina, 
+                        assunto: originalStudy.assunto, 
+                        total: questoes, 
+                        acertos: acertos, 
+                        percentual: questoes > 0 ? (acertos/questoes)*100 : 0,
+                        tempo: tempo, 
+                        revisoes: [] 
+                    };
+                    db.estudos.push(novoEstudoRev);
+                }
                 
-                if (tempo > 0) db.tempoEstudos.push({ 
-                    id: Date.now().toString() + '_revT', 
-                    editalId: editalIdRef,
-                    data: getTodayDate(), 
-                    disciplina: originalStudy.disciplina, 
-                    assunto: originalStudy.assunto, 
-                    tempoMinutos: tempo, 
-                    tipo: 'revisao' 
-                });
+                if (tempo > 0) {
+                    novoTempoRev = { 
+                        id: Date.now().toString() + '_revT', 
+                        editalId: editalIdRef,
+                        data: getTodayDate(), 
+                        disciplina: originalStudy.disciplina, 
+                        assunto: originalStudy.assunto, 
+                        tempoMinutos: tempo, 
+                        tipo: 'revisao' 
+                    };
+                    db.tempoEstudos.push(novoTempoRev);
+                }
                 
-                await saveData(); 
+                // 2. Sincroniza com o Servidor (MÉTODO LEVE)
+                // Se gerou novos dados, envia só eles
+                if (novoEstudoRev || novoTempoRev) {
+                    await saveIncremental({ estudo: novoEstudoRev, tempo: novoTempoRev });
+                }
+
+                // Atualiza o status "concluída" da revisão (ROTA PUT ESPECÍFICA)
+                await updateRevisionStatus(id, idx);
 
                 // ATUALIZAÇÃO GERAL DE TELAS
                 renderHomePage(); 
@@ -1299,7 +1333,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 editalId: edital.id, 
                 data: dataRegistro, 
                 disciplina: disc, 
-                assunto: assuntoFinal,
+                assunto: assuntoFinal, 
                 intervalo: intervaloStr,
                 total: totalQ, 
                 acertos: totalA, 
@@ -1350,6 +1384,7 @@ document.addEventListener('DOMContentLoaded', () => {
             await saveIncremental({ estudo: novoEstudo, tempo: novoTempo });
 
             // 2. ENVIO PESADO (BACKGROUND)
+            // Apenas se houver mudança estrutural (novo assunto, ciclo)
             if (precisaSalvarDBCompleto) {
                 saveData(); 
             }
@@ -1742,10 +1777,67 @@ document.addEventListener('DOMContentLoaded', () => {
             
             renderAdminUsers(data.users);
             updateRegButton(data.registrationOpen);
+
+            // --- INJEÇÃO DO BOTÃO DE LIMPEZA (NOVIDADE) ---
+            const modalBody = document.querySelector('#admin-modal .modal-body');
+            
+            if (!document.getElementById('btn-cleanup-db')) {
+                const cleanDiv = document.createElement('div');
+                cleanDiv.className = 'card';
+                cleanDiv.style.cssText = 'margin-bottom: 20px; padding: 15px; border: 1px solid var(--warning-color); background: rgba(245, 158, 11, 0.05);';
+                cleanDiv.innerHTML = `
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <strong>Limpeza de Banco de Dados</strong><br>
+                            <small style="color:var(--text-light)">Remove duplicatas e otimiza o armazenamento.</small>
+                        </div>
+                        <button id="btn-cleanup-db" class="btn-sm" style="background:var(--warning-color); color:#fff; border:none; padding:8px 12px; border-radius:4px; cursor:pointer;">
+                            <i class="ph ph-broom"></i> Faxinar Agora
+                        </button>
+                    </div>
+                `;
+                modalBody.insertBefore(cleanDiv, modalBody.firstChild);
+                
+                document.getElementById('btn-cleanup-db').addEventListener('click', runCleanup);
+            }
+            // ----------------------------------------------
             
             modalBackdrop.classList.add('active');
             document.getElementById('admin-modal').classList.add('active');
-        } catch(e) { alert("Erro ao carregar painel admin."); }
+        } catch(e) { 
+            console.error(e);
+            alert("Erro ao carregar painel admin."); 
+        }
+    }
+
+    // --- FUNÇÃO DE LIMPEZA ---
+    async function runCleanup() {
+        if(!confirm("Tem certeza? Isso irá apagar registros duplicados de TODOS os usuários. Essa ação não pode ser desfeita.")) return;
+        
+        const btn = document.getElementById('btn-cleanup-db');
+        const originalText = btn.innerHTML;
+        btn.innerHTML = "Limpando...";
+        btn.disabled = true;
+
+        try {
+            const res = await fetch(`${API_URL}/admin/cleanup`, {
+                method: 'POST',
+                headers: { 'x-auth-token': authToken }
+            });
+            const data = await res.json();
+            
+            if(res.ok) {
+                alert("Sucesso!\n" + data.details);
+                loadDataFromCloud();
+            } else {
+                alert("Erro: " + data.msg);
+            }
+        } catch(e) {
+            alert("Erro de conexão.");
+        } finally {
+            btn.innerHTML = originalText;
+            btn.disabled = false;
+        }
     }
 
     const btnAdminPanel = document.getElementById('btn-admin-panel');

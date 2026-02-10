@@ -24,8 +24,8 @@ app.use(cors());
 // Variável global para controlar novos registros
 let REGISTRATION_OPEN = true; 
 
-// --- ROTA DE KEEP-ALIVE (SOLUÇÃO PARA O RENDER) ---
-// Essa rota será chamada a cada 14 minutos por um serviço externo para impedir que o servidor durma.
+// --- ROTA DE KEEP-ALIVE (CRUCIAL PARA O RENDER) ---
+// Configure o cron-job.org para chamar esta rota a cada 14 minutos
 app.get('/health', (req, res) => {
     res.status(200).send('OK');
 });
@@ -59,25 +59,37 @@ const adminAuth = async (req, res, next) => {
 
 // --- ROTAS DE DADOS (SYNC INTELIGENTE) ---
 
-// 1. Rota de Carregamento Híbrido (GET)
+// 1. Rota de Carregamento Híbrido (GET) com DEDUPLICAÇÃO AUTOMÁTICA
 app.get('/api/data', auth, async (req, res) => {
     try {
+        // Busca dados antigos (Legado)
         const legacyDataDoc = await StudyData.findOne({ userId: req.user.id });
         let finalData = legacyDataDoc ? legacyDataDoc.data : {};
 
         if (!finalData.estudos) finalData.estudos = [];
         if (!finalData.tempoEstudos) finalData.tempoEstudos = [];
 
+        // Busca dados novos (Granulares)
         const newSessions = await StudySession.find({ userId: req.user.id }).lean();
         const newTimes = await StudyTimeLog.find({ userId: req.user.id }).lean();
 
+        // Limpa metadados do mongoose (_id, __v)
         const cleanList = (list) => list.map(item => {
             const { _id, userId, __v, ...rest } = item;
             return rest;
         });
 
-        finalData.estudos = [...finalData.estudos, ...cleanList(newSessions)];
-        finalData.tempoEstudos = [...finalData.tempoEstudos, ...cleanList(newTimes)];
+        // --- LÓGICA DE DEDUPLICAÇÃO ---
+        // Se um item existe na coleção nova, ignoramos a versão dele que está no legado
+        const newIds = new Set(newSessions.map(s => s.id));
+        const newTimeIds = new Set(newTimes.map(t => t.id));
+
+        const legacyEstudosFiltered = finalData.estudos.filter(s => !newIds.has(s.id));
+        const legacyTimesFiltered = finalData.tempoEstudos.filter(t => !newTimeIds.has(t.id));
+
+        // Mescla final
+        finalData.estudos = [...legacyEstudosFiltered, ...cleanList(newSessions)];
+        finalData.tempoEstudos = [...legacyTimesFiltered, ...cleanList(newTimes)];
 
         res.json(finalData);
     } catch (err) { 
@@ -92,7 +104,7 @@ app.post('/api/estudos', auth, async (req, res) => {
         const { estudo, tempo } = req.body;
         
         if (estudo) {
-            // Idempotência: Evita duplicidade checando se o ID já existe
+            // Idempotência: Só salva se não existir este ID
             const exists = await StudySession.findOne({ id: estudo.id, userId: req.user.id });
             if (!exists) {
                 await new StudySession({ ...estudo, userId: req.user.id }).save();
@@ -113,7 +125,43 @@ app.post('/api/estudos', auth, async (req, res) => {
     }
 });
 
-// 3. Rota Legada (POST /data) - Apenas configurações
+// 3. Rota de Atualização de Revisão (PUT) - NOVO FIX
+// Atualiza status sem salvar o DB inteiro, evitando a duplicidade
+app.put('/api/estudos/revisao', auth, async (req, res) => {
+    try {
+        const { studyId, revIndex } = req.body;
+
+        // Tenta achar na coleção NOVA
+        const session = await StudySession.findOne({ id: studyId, userId: req.user.id });
+        if (session) {
+            if (session.revisoes && session.revisoes[revIndex]) {
+                session.revisoes[revIndex].concluida = true;
+                session.markModified('revisoes'); 
+                await session.save();
+                return res.json({ msg: "Revisão atualizada (Moderno)" });
+            }
+        }
+
+        // Se não achou, tenta achar na coleção LEGADA
+        const legacy = await StudyData.findOne({ userId: req.user.id });
+        if (legacy) {
+            const sIndex = legacy.data.estudos.findIndex(s => s.id === studyId);
+            if (sIndex > -1 && legacy.data.estudos[sIndex].revisoes[revIndex]) {
+                legacy.data.estudos[sIndex].revisoes[revIndex].concluida = true;
+                legacy.markModified('data');
+                await legacy.save();
+                return res.json({ msg: "Revisão atualizada (Legado)" });
+            }
+        }
+
+        res.status(404).json({ msg: "Estudo não encontrado." });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ msg: 'Erro ao atualizar revisão.' });
+    }
+});
+
+// 4. Rota Legada (POST /data) - Apenas para configurações (Editais, Ciclos)
 app.post('/api/data', auth, async (req, res) => {
     try {
         await StudyData.findOneAndUpdate({ userId: req.user.id }, { $set: { data: req.body } }, { upsert: true });
@@ -179,6 +227,93 @@ app.delete('/api/auth/account', auth, async (req, res) => {
         await StudyTimeLog.deleteMany({ userId: req.user.id });
         res.json({ msg: 'Conta excluída.' });
     } catch (err) { res.status(500).send('Erro servidor'); }
+});
+
+// --- ROTA DE FAXINA / LIMPEZA (NOVO) ---
+app.post('/api/admin/cleanup', auth, adminAuth, async (req, res) => {
+    try {
+        console.log("Iniciando limpeza...");
+        const users = await User.find();
+        let totalRemoved = 0;
+        let totalLegacyCleaned = 0;
+
+        for (const user of users) {
+            const userId = user._id;
+
+            // 1. LIMPAR DUPLICATAS NA COLEÇÃO NOVA (StudySession)
+            const allSessions = await StudySession.find({ userId }).sort({ _id: -1 });
+            const seenIds = new Set();
+            const idsToDelete = [];
+            const uniqueSessionIds = new Set(); 
+
+            for (const session of allSessions) {
+                if (seenIds.has(session.id)) {
+                    idsToDelete.push(session._id); // Duplicata
+                } else {
+                    seenIds.add(session.id);
+                    uniqueSessionIds.add(session.id);
+                }
+            }
+
+            if (idsToDelete.length > 0) {
+                await StudySession.deleteMany({ _id: { $in: idsToDelete } });
+                totalRemoved += idsToDelete.length;
+            }
+
+            // 2. LIMPAR DUPLICATAS NA COLEÇÃO DE TEMPO (StudyTimeLog)
+            const allTimes = await StudyTimeLog.find({ userId }).sort({ _id: -1 });
+            const seenTimeIds = new Set();
+            const timeIdsToDelete = [];
+            const uniqueTimeIds = new Set();
+
+            for (const time of allTimes) {
+                if (seenTimeIds.has(time.id)) {
+                    timeIdsToDelete.push(time._id);
+                } else {
+                    seenTimeIds.add(time.id);
+                    uniqueTimeIds.add(time.id);
+                }
+            }
+
+            if (timeIdsToDelete.length > 0) {
+                await StudyTimeLog.deleteMany({ _id: { $in: timeIdsToDelete } });
+                totalRemoved += timeIdsToDelete.length;
+            }
+
+            // 3. LIMPAR LEGADO (Remover do JSON o que já está na coleção nova)
+            const legacyData = await StudyData.findOne({ userId });
+            if (legacyData && legacyData.data) {
+                let changed = false;
+
+                if (legacyData.data.estudos) {
+                    const originalLen = legacyData.data.estudos.length;
+                    legacyData.data.estudos = legacyData.data.estudos.filter(s => !uniqueSessionIds.has(s.id));
+                    if (legacyData.data.estudos.length !== originalLen) changed = true;
+                    totalLegacyCleaned += (originalLen - legacyData.data.estudos.length);
+                }
+
+                if (legacyData.data.tempoEstudos) {
+                    const originalLen = legacyData.data.tempoEstudos.length;
+                    legacyData.data.tempoEstudos = legacyData.data.tempoEstudos.filter(t => !uniqueTimeIds.has(t.id));
+                    if (legacyData.data.tempoEstudos.length !== originalLen) changed = true;
+                }
+
+                if (changed) {
+                    legacyData.markModified('data');
+                    await legacyData.save();
+                }
+            }
+        }
+
+        res.json({ 
+            msg: `Limpeza concluída!`, 
+            details: `${totalRemoved} duplicatas removidas das coleções. ${totalLegacyCleaned} itens redundantes removidos do legado.`
+        });
+
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ msg: 'Erro durante a limpeza.' });
+    }
 });
 
 app.get('/api/admin/users', auth, adminAuth, async (req, res) => {
