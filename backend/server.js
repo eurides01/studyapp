@@ -5,24 +5,30 @@ const cors = require('cors');
 const path = require('path');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const compression = require('compression'); // Recomendado para performance
+const compression = require('compression'); // Otimização de performance
 
 // Importação dos Models
 const User = require('./models/User');
 const StudyData = require('./models/StudyData');
-const StudySession = require('./models/StudySession'); // NOVO
-const StudyTimeLog = require('./models/StudyTimeLog'); // NOVO
+const StudySession = require('./models/StudySession');
+const StudyTimeLog = require('./models/StudyTimeLog');
 
 const app = express();
 
 // Configurações de Middleware
-app.use(compression()); // Comprime as respostas JSON (melhora carregamento)
+app.use(compression());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(cors());
 
 // Variável global para controlar novos registros
 let REGISTRATION_OPEN = true; 
+
+// --- ROTA DE KEEP-ALIVE (SOLUÇÃO PARA O RENDER) ---
+// Essa rota será chamada a cada 14 minutos por um serviço externo para impedir que o servidor durma.
+app.get('/health', (req, res) => {
+    res.status(200).send('OK');
+});
 
 mongoose.connect(process.env.MONGO_URI)
     .then(() => console.log("MongoDB Conectado!"))
@@ -54,28 +60,22 @@ const adminAuth = async (req, res, next) => {
 // --- ROTAS DE DADOS (SYNC INTELIGENTE) ---
 
 // 1. Rota de Carregamento Híbrido (GET)
-// Carrega o histórico antigo (StudyData) E mistura com os novos itens individuais
 app.get('/api/data', auth, async (req, res) => {
     try {
-        // Busca dados legados
         const legacyDataDoc = await StudyData.findOne({ userId: req.user.id });
         let finalData = legacyDataDoc ? legacyDataDoc.data : {};
 
-        // Garante estrutura básica
         if (!finalData.estudos) finalData.estudos = [];
         if (!finalData.tempoEstudos) finalData.tempoEstudos = [];
 
-        // Busca novos dados granulares
         const newSessions = await StudySession.find({ userId: req.user.id }).lean();
         const newTimes = await StudyTimeLog.find({ userId: req.user.id }).lean();
 
-        // Limpa campos internos do Mongoose (_id, __v) para enviar JSON limpo
         const cleanList = (list) => list.map(item => {
             const { _id, userId, __v, ...rest } = item;
             return rest;
         });
 
-        // Mescla arrays
         finalData.estudos = [...finalData.estudos, ...cleanList(newSessions)];
         finalData.tempoEstudos = [...finalData.tempoEstudos, ...cleanList(newTimes)];
 
@@ -86,22 +86,19 @@ app.get('/api/data', auth, async (req, res) => {
     }
 });
 
-// 2. Rota de Salvamento Incremental (POST) - A SOLUÇÃO DA PERFORMANCE
-// Salva apenas UM item por vez, sem reescrever o banco todo
+// 2. Rota de Salvamento Incremental (POST)
 app.post('/api/estudos', auth, async (req, res) => {
     try {
         const { estudo, tempo } = req.body;
         
-        // Salvar Estudo (Questões/Revisão)
         if (estudo) {
-            // Idempotência: Verifica se ID já existe para evitar duplicidade
+            // Idempotência: Evita duplicidade checando se o ID já existe
             const exists = await StudySession.findOne({ id: estudo.id, userId: req.user.id });
             if (!exists) {
                 await new StudySession({ ...estudo, userId: req.user.id }).save();
             }
         }
 
-        // Salvar Tempo (Cronômetro)
         if (tempo) {
             const existsTime = await StudyTimeLog.findOne({ id: tempo.id, userId: req.user.id });
             if (!existsTime) {
@@ -116,22 +113,15 @@ app.post('/api/estudos', auth, async (req, res) => {
     }
 });
 
-// 3. Rota Legada (POST /data)
-// Mantida apenas para salvar configurações (Editais, Ciclos, Assuntos Manuais)
-// O frontend chamará isso com menos frequência
+// 3. Rota Legada (POST /data) - Apenas configurações
 app.post('/api/data', auth, async (req, res) => {
     try {
-        // Removemos os arrays de estudos grandes para não duplicar no Legacy
-        // O frontend deve enviar o DB completo, mas aqui poderíamos filtrar se quiséssemos otimizar mais.
-        // Por segurança, mantemos a sobrescrita para configurações, mas o ideal é que o frontend
-        // pare de enviar 'estudos' e 'tempoEstudos' cheios para essa rota no futuro.
         await StudyData.findOneAndUpdate({ userId: req.user.id }, { $set: { data: req.body } }, { upsert: true });
         res.json({ msg: "Configurações salvas" });
     } catch (err) { res.status(500).send('Erro ao salvar configurações'); }
 });
 
 // --- ROTAS DE AUTENTICAÇÃO & ADMIN ---
-// (Mantidas idênticas ao original)
 
 app.post('/api/auth/register', async (req, res) => {
     if (!REGISTRATION_OPEN) return res.status(403).json({ msg: 'Novos registros bloqueados.' });
@@ -185,8 +175,8 @@ app.delete('/api/auth/account', auth, async (req, res) => {
     try {
         await StudyData.findOneAndDelete({ userId: req.user.id });
         await User.findByIdAndDelete(req.user.id);
-        await StudySession.deleteMany({ userId: req.user.id }); // Limpa novos dados
-        await StudyTimeLog.deleteMany({ userId: req.user.id }); // Limpa novos dados
+        await StudySession.deleteMany({ userId: req.user.id });
+        await StudyTimeLog.deleteMany({ userId: req.user.id });
         res.json({ msg: 'Conta excluída.' });
     } catch (err) { res.status(500).send('Erro servidor'); }
 });

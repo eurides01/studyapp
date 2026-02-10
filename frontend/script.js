@@ -17,6 +17,9 @@ document.addEventListener('DOMContentLoaded', () => {
         
     let authToken = localStorage.getItem('token');
     let currentUser = JSON.parse(localStorage.getItem('user') || '{}');
+    
+    // TRAVA DE SEGURANÇA PARA EVITAR DUPLICIDADE NO FRONTEND
+    let isSaving = false;
 
     // ===== 2. ESTADO GLOBAL =====
     let db = {
@@ -721,8 +724,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const btnSalvarRev = document.getElementById('btn-salvar-revisao');
     if(btnSalvarRev) btnSalvarRev.addEventListener('click', async () => {
+        if(isSaving) return;
+        isSaving = true;
+        
         const btn = btnSalvarRev;
         const originalText = btn.textContent;
+        btn.textContent = "Salvando...";
+        btn.disabled = true;
 
         try {
             const id = document.getElementById('rev-id').value;
@@ -760,19 +768,11 @@ document.addEventListener('DOMContentLoaded', () => {
                     tipo: 'revisao' 
                 });
                 
-                btn.textContent = "Salvando...";
-                btn.disabled = true;
-
-                // Salva incremental (review também é um "estudo novo" se gerou tempo/questões)
-                // Mas aqui estamos apenas atualizando o status da revisão e criando novos registros
-                // Como o "concluída: true" altera um registro antigo, vamos salvar tudo para garantir consistência
-                // Ou podemos criar um endpoint para "patchReview" futuramente.
-                // Por hora, usamos saveData() completo para revisões pois é menos frequente.
                 await saveData(); 
 
                 // ATUALIZAÇÃO GERAL DE TELAS
                 renderHomePage(); 
-                renderDisciplinas(); // <--- Atualiza lista de matérias
+                renderDisciplinas(); 
                 if(document.getElementById('page-estatisticas').classList.contains('active')) renderEstatisticas();
 
                 modalBackdrop.classList.remove('active'); 
@@ -785,6 +785,7 @@ document.addEventListener('DOMContentLoaded', () => {
         } finally {
             btn.textContent = originalText;
             btn.disabled = false;
+            isSaving = false;
         }
     });
 
@@ -1234,9 +1235,12 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    // CORREÇÃO: BOTÃO SALVAR REGISTRO COM SINCRONIZAÇÃO INCREMENTAL
+    // CORREÇÃO: BOTÃO SALVAR REGISTRO COM TRAVA DE SEGURANÇA (isSaving)
     const btnSalvarRegistro = document.getElementById('btn-salvar-registro');
     if(btnSalvarRegistro) btnSalvarRegistro.addEventListener('click', async () => {
+        if(isSaving) return; // BLOQUEIA SE JÁ ESTIVER SALVANDO
+        isSaving = true;
+
         const btn = btnSalvarRegistro;
         const originalText = btn.textContent;
         
@@ -1251,7 +1255,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const semData = document.getElementById('reg-sem-data').checked;
             let dataRegistro = semData ? 'SEM_DATA' : (document.getElementById('reg-data-input').value || getTodayDate());
 
-            if (!disc) return alert("Selecione disciplina.");
+            if (!disc) { isSaving = false; return alert("Selecione disciplina."); }
             
             // CAPTURAR CAMPOS DE INTERVALO
             const pgInicio = document.getElementById('reg-inicio').value.trim();
@@ -1272,13 +1276,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 } 
             } else if (assuntoSelecionado) { assuntoFinal = assuntoSelecionado; }
             
-            if (!assuntoFinal) return alert("Selecione assunto.");
+            if (!assuntoFinal) { isSaving = false; return alert("Selecione assunto."); }
             
             const totalQ = parseInt(document.getElementById('reg-questoes').value) || 0; 
             const totalA = parseInt(document.getElementById('reg-acertos').value) || 0; 
             const totalT = parseInt(document.getElementById('reg-tempo').value) || 0;
             
-            if (totalA > totalQ) return alert("Acertos > Questões.");
+            if (totalA > totalQ) { isSaving = false; return alert("Acertos > Questões."); }
             
             let revisoesArray = [];
             if (agendarRevisoes) {
@@ -1343,21 +1347,17 @@ document.addEventListener('DOMContentLoaded', () => {
             btn.disabled = true;
 
             // 1. ENVIO LEVE (INCREMENTAL)
-            // Envia apenas o estudo e o tempo. Muito rápido.
             await saveIncremental({ estudo: novoEstudo, tempo: novoTempo });
 
             // 2. ENVIO PESADO (BACKGROUND)
-            // Se alterou configurações (assuntos, ciclo), salva o DB todo.
-            // Se foi só um registro comum, NÃO envia o DB gigante.
             if (precisaSalvarDBCompleto) {
-                saveData(); // Não usamos await aqui propositalmente para não travar a UI se for lento
+                saveData(); 
             }
 
             // ATUALIZAÇÃO GERAL DA UI (PARA TODAS AS TELAS)
             renderHomePage(); 
-            renderDisciplinas(); // <--- Atualiza lista de matérias (Checks e Stats)
+            renderDisciplinas(); 
             
-            // Atualiza telas específicas se estiverem visíveis para garantir consistência imediata
             if(document.getElementById('page-estatisticas').classList.contains('active')) renderEstatisticas();
             if(document.getElementById('page-ciclo').classList.contains('active')) renderCicloConfig();
 
@@ -1367,11 +1367,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
         } catch (e) {
             console.error(e);
-            // Mesmo com erro de rede, o dado está na memória (db.estudos) e o usuário vê o resultado.
             alert("Atenção: Erro de conexão ao sincronizar. O registro foi salvo apenas localmente por enquanto.\nErro: " + (e.message || "Desconhecido"));
         } finally {
             btn.textContent = originalText;
             btn.disabled = false;
+            isSaving = false; // LIBERA A TRAVA
         }
     });
 
