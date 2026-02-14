@@ -1,42 +1,12 @@
 document.addEventListener('DOMContentLoaded', () => {
 
-    // ===== 0. INJEÇÃO DE CSS (STATUS VERDE ESTÁTICO) =====
+    // ===== 0. INJEÇÃO DE CSS =====
     const styleSheet = document.createElement("style");
     styleSheet.innerText = `
         .btn-edit { color: var(--text-light); transition: all 0.2s; }
         .btn-edit:hover { color: var(--primary-color); background-color: rgba(79, 70, 229, 0.1); transform: scale(1.1); }
         .icon-action-btn { width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border-radius: 6px; border: none; background: transparent; cursor: pointer; font-size: 1.1rem; }
         .icon-action-btn:hover { background-color: rgba(0,0,0,0.05); }
-        
-        /* STATUS INDICATOR */
-        .server-status-container {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            margin-right: 15px;
-            font-size: 0.8rem;
-            color: var(--text-light);
-            cursor: help;
-        }
-        .server-status-dot {
-            width: 10px;
-            height: 10px;
-            border-radius: 50%;
-            background-color: #94a3b8; /* Cinza */
-            transition: background-color 0.3s ease;
-        }
-        .server-status-dot.online {
-            background-color: #22c55e; /* Verde */
-            box-shadow: 0 0 4px rgba(34, 197, 94, 0.4);
-        }
-        .server-status-dot.offline {
-            background-color: #ef4444; /* Vermelho */
-        }
-        
-        @media (max-width: 768px) {
-            .server-status-text { display: none; }
-            .server-status-container { margin-right: 10px; }
-        }
     `;
     document.head.appendChild(styleSheet);
 
@@ -48,6 +18,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let authToken = localStorage.getItem('token');
     let currentUser = JSON.parse(localStorage.getItem('user') || '{}');
     
+    // TRAVA DE SEGURANÇA PARA EVITAR DUPLICIDADE NO FRONTEND
     let isSaving = false;
 
     // ===== 2. ESTADO GLOBAL =====
@@ -89,72 +60,9 @@ document.addEventListener('DOMContentLoaded', () => {
         return str.replace(/'/g, "\\'").replace(/"/g, '&quot;');
     };
 
-    // ===== NOVO: MONITOR DE STATUS & KEEP-ALIVE =====
-    const initServerStatusMonitor = () => {
-        // Cria visualmente o indicador se não existir
-        if (navBar && !document.getElementById('server-status-indicator')) {
-            const statusDiv = document.createElement('div');
-            statusDiv.className = 'server-status-container';
-            statusDiv.id = 'server-status-indicator';
-            statusDiv.title = 'Monitorando conexão...';
-            
-            statusDiv.innerHTML = `
-                <div class="server-status-dot" id="status-dot"></div>
-                <span class="server-status-text" id="status-text">Conectando...</span>
-            `;
-            
-            const target = document.getElementById('menu-toggle') || navBar.lastElementChild;
-            navBar.insertBefore(statusDiv, target);
-        }
-
-        const dot = document.getElementById('status-dot');
-        const text = document.getElementById('status-text');
-        const container = document.getElementById('server-status-indicator');
-
-        // Função que PINGA o servidor (Mantém ele acordado!)
-        const checkHealth = async () => {
-            // URL da rota /health (fora do /api)
-            const healthUrl = API_URL.replace('/api', '') + '/health'; 
-
-            try {
-                // Timeout curto de 5s para não travar
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 5000);
-                
-                // Faz a requisição. Isso reseta o timer de 15min do Render!
-                const res = await fetch(healthUrl, { signal: controller.signal });
-                clearTimeout(timeoutId);
-
-                if (res.ok) {
-                    if(dot) {
-                        dot.className = 'server-status-dot online';
-                        if(text) text.textContent = 'Online';
-                        if(container) container.title = 'Servidor Ativo e Pronto';
-                    }
-                } else {
-                    throw new Error('Status não OK');
-                }
-            } catch (e) {
-                if(dot) {
-                    dot.className = 'server-status-dot offline';
-                    if(text) text.textContent = 'Offline';
-                    if(container) container.title = 'Servidor Dormindo ou Sem Internet';
-                }
-            }
-        };
-
-        // Roda imediatamente ao carregar a página
-        checkHealth();
-        // Roda a cada 30 segundos (suficiente para manter o Render acordado)
-        setInterval(checkHealth, 30000);
-    };
-
     // ===== 4. CONTROLE DE AUTENTICAÇÃO E UI =====
 
     const checkAuth = () => {
-        // Inicia o monitoramento SEMPRE, mesmo na tela de login
-        initServerStatusMonitor();
-
         if(authToken) {
             authScreen.style.display = 'none';
             navBar.style.display = 'flex';
@@ -284,6 +192,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
+    // --- SALVAMENTO INCREMENTAL ---
     const saveIncremental = async (payload) => {
         if(!authToken) return;
         try {
@@ -300,6 +209,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
+    // --- ATUALIZAÇÃO LEVE DE REVISÃO (FIX DUPLICIDADE) ---
     const updateRevisionStatus = async (studyId, revIndex) => {
         if(!authToken) return;
         try {
