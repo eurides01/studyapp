@@ -1,16 +1,14 @@
 document.addEventListener('DOMContentLoaded', () => {
 
-    // ===== 0. INJEÇÃO DE CSS =====
     const styleSheet = document.createElement("style");
     styleSheet.innerText = `
         .btn-edit { color: var(--text-light); transition: all 0.2s; }
-        .btn-edit:hover { color: var(--primary-color); background-color: rgba(79, 70, 229, 0.1); transform: scale(1.1); }
+        .btn-edit:hover { color: var(--primary-color); background-color: rgba(37, 99, 235, 0.1); transform: scale(1.1); }
         .icon-action-btn { width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border-radius: 6px; border: none; background: transparent; cursor: pointer; font-size: 1.1rem; }
         .icon-action-btn:hover { background-color: rgba(0,0,0,0.05); }
     `;
     document.head.appendChild(styleSheet);
 
-    // ===== 1. CONFIGURAÇÃO DA API =====
     const API_URL = window.location.hostname.includes('localhost') || window.location.hostname.includes('127.0.0.1')
         ? 'http://localhost:5000/api'
         : '/api';
@@ -18,15 +16,15 @@ document.addEventListener('DOMContentLoaded', () => {
     let authToken = localStorage.getItem('token');
     let currentUser = JSON.parse(localStorage.getItem('user') || '{}');
     
-    // TRAVA DE SEGURANÇA PARA EVITAR DUPLICIDADE NO FRONTEND
     let isSaving = false;
 
-    // ===== 2. ESTADO GLOBAL =====
     let db = {
         editais: [],
         estudos: [],       
         tempoEstudos: [],  
-        assuntosManuais: [] 
+        assuntosManuais: [],
+        flashcardDecks: [], 
+        flashcards: []      
     };
 
     let currentEditalId = localStorage.getItem('lastEditalId') || null;
@@ -35,49 +33,49 @@ document.addEventListener('DOMContentLoaded', () => {
     
     let isLegacyRegistration = false;
     
-    // Estado do Timer
     let timer = {
         interval: null, running: false, mode: 'pomodoro', phase: 'focus',
         seconds: 1500, accumulated: 0, settings: { focus: 25, short: 5, long: 15 }
     };
 
-    // ===== 3. SELETORES GERAIS =====
+    // Variáveis Estudo Flashcards
+    let flashcardStudyQueue = [];
+    let currentFlashcard = null;
+    let currentStudyDeckId = null;
+
+    // SELETORES
     const authScreen = document.getElementById('auth-screen');
-    const navBar = document.querySelector('.navbar');
+    const sidebar = document.getElementById('sidebar');
     const mainContainer = document.querySelector('.container');
+    const mobileMenuBtn = document.getElementById('mobile-menu-btn');
+    const sidebarToggle = document.getElementById('sidebar-toggle');
     const modalBackdrop = document.getElementById('modal-backdrop');
     const pages = document.querySelectorAll('.page');
     const navLinks = document.querySelectorAll('.nav-link');
-    const menuToggle = document.getElementById('menu-toggle');
-    const navLinksContainer = document.querySelector('.nav-links');
-    
     const editalSelector = document.getElementById('edital-selector');
     const navEditalSelector = document.getElementById('navbar-edital-select');
     
-    // ===== HELPER: SANITIZAR STRINGS =====
     const escapeQuotes = (str) => {
         if (!str) return '';
         return str.replace(/'/g, "\\'").replace(/"/g, '&quot;');
     };
 
-    // ===== 4. CONTROLE DE AUTENTICAÇÃO E UI =====
-
     const checkAuth = () => {
         if(authToken) {
             authScreen.style.display = 'none';
-            navBar.style.display = 'flex';
+            sidebar.style.display = 'flex';
+            if(mobileMenuBtn) mobileMenuBtn.style.display = ''; 
             if(mainContainer) mainContainer.style.display = 'block';
             
             const isAdmin = (currentUser && currentUser.role === 'admin');
             const btnAdmin = document.getElementById('btn-admin-panel');
             if (btnAdmin) btnAdmin.style.display = isAdmin ? 'flex' : 'none';
-            const btnAdminMobile = document.getElementById('mobile-btn-admin');
-            if (btnAdminMobile) btnAdminMobile.style.display = isAdmin ? 'flex' : 'none';
 
             loadDataFromCloud();
         } else {
             authScreen.style.display = 'flex';
-            navBar.style.display = 'none';
+            sidebar.style.display = 'none';
+            if(mobileMenuBtn) mobileMenuBtn.style.display = 'none'; 
             if(mainContainer) mainContainer.style.display = 'none';
         }
     };
@@ -85,7 +83,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const handleAuth = async (endpoint) => {
         const email = document.getElementById('login-email').value;
         const password = document.getElementById('login-password').value;
-        const name = "Estudante"; 
 
         if(!email || !password) return alert("Preencha email e senha!");
         
@@ -93,7 +90,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const res = await fetch(`${API_URL}/auth/${endpoint}`, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ name, email, password })
+                body: JSON.stringify({ email, password })
             });
             const data = await res.json();
             
@@ -110,9 +107,7 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const btnLogin = document.getElementById('btn-login');
-    const btnRegister = document.getElementById('btn-register');
     if (btnLogin) btnLogin.addEventListener('click', () => handleAuth('login'));
-    if (btnRegister) btnRegister.addEventListener('click', () => handleAuth('register'));
     
     const performLogout = () => {
         localStorage.removeItem('token');
@@ -122,9 +117,6 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     document.getElementById('btn-logout').addEventListener('click', performLogout);
-    document.getElementById('mobile-btn-logout').addEventListener('click', (e) => { e.preventDefault(); performLogout(); });
-
-    // ===== 5. SINCRONIZAÇÃO DE DADOS =====
 
     const loadDataFromCloud = async () => {
         if(!authToken) return;
@@ -154,6 +146,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (!db.estudos) db.estudos = [];
                 if (!db.tempoEstudos) db.tempoEstudos = [];
                 if (!db.assuntosManuais) db.assuntosManuais = [];
+                if (!db.flashcardDecks) db.flashcardDecks = [];
+                if (!db.flashcards) db.flashcards = [];
                 
                 if (db.editais.length > 0) {
                     if (!currentEditalId || !db.editais.find(e => e.id === currentEditalId)) {
@@ -192,7 +186,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    // --- SALVAMENTO INCREMENTAL ---
     const saveIncremental = async (payload) => {
         if(!authToken) return;
         try {
@@ -209,7 +202,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    // --- ATUALIZAÇÃO LEVE DE REVISÃO (FIX DUPLICIDADE) ---
     const updateRevisionStatus = async (studyId, revIndex) => {
         if(!authToken) return;
         try {
@@ -236,8 +228,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const match = str.match(/^T(\d+)/i); 
         return match ? parseInt(match[1]) : 999999;
     };
-
-    // ===== 6. FUNÇÕES DE TEMPO E DATA =====
 
     const getTodayDate = () => {
         const now = new Date();
@@ -277,8 +267,6 @@ document.addEventListener('DOMContentLoaded', () => {
         d2.setHours(0,0,0,0);
         return Math.round((d2 - d1) / (1000 * 60 * 60 * 24));
     };
-
-    // ===== 7. LÓGICA DE EDITAIS =====
 
     const updateEditalUI = () => {
         const edital = getCurrentEdital();
@@ -321,60 +309,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if(editalSelector) editalSelector.addEventListener('change', (e) => handleEditalChange(e.target.value));
     if(navEditalSelector) navEditalSelector.addEventListener('change', (e) => handleEditalChange(e.target.value));
 
-    const btnNewEdital = document.getElementById('btn-new-edital');
-    if(btnNewEdital) btnNewEdital.addEventListener('click', () => {
-        document.getElementById('new-edital-name').value = '';
-        const chk = document.getElementById('new-edital-is-trilha');
-        if(chk) chk.checked = false; 
-        
-        modalBackdrop.classList.add('active');
-        document.getElementById('new-edital-modal').classList.add('active');
-    });
-
-    const btnSaveEdital = document.getElementById('btn-save-edital');
-    if(btnSaveEdital) btnSaveEdital.addEventListener('click', () => {
-        const nome = document.getElementById('new-edital-name').value.trim();
-        const isTrilha = document.getElementById('new-edital-is-trilha').checked; 
-        
-        if(!nome) return alert("Digite o nome.");
-        
-        const newEdital = {
-            id: Date.now().toString(),
-            nome: nome,
-            isTrilha: isTrilha, 
-            disciplinas: [],
-            ciclo: { deck: [], disciplinasPorDia: 3, metaHoras: 4 }
-        };
-        db.editais.push(newEdital);
-        currentEditalId = newEdital.id;
-        localStorage.setItem('lastEditalId', currentEditalId);
-        saveData();
-        updateEditalUI();
-        modalBackdrop.classList.remove('active');
-        document.getElementById('new-edital-modal').classList.remove('active');
-        showPage('page-estudos');
-    });
-
-    const btnDelEdital = document.getElementById('btn-delete-edital');
-    if(btnDelEdital) btnDelEdital.addEventListener('click', () => {
-        const edital = getCurrentEdital();
-        if(!edital) return;
-        
-        if(confirm(`Tem certeza que deseja apagar o edital "${edital.nome}"?`)) {
-            db.editais = db.editais.filter(e => e.id !== currentEditalId);
-            currentEditalId = db.editais.length > 0 ? db.editais[0].id : null;
-            
-            if(currentEditalId) localStorage.setItem('lastEditalId', currentEditalId);
-            else localStorage.removeItem('lastEditalId');
-            
-            saveData();
-            updateEditalUI();
-            showPage('page-estudos');
-        }
-    });
-
-    // ===== 8. NAVEGAÇÃO =====
-
+    // EVENTOS SIDEBAR E MENUS
     const showPage = (pageId) => {
         pages.forEach(p => p.classList.remove('active'));
         navLinks.forEach(l => {
@@ -383,7 +318,8 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         const targetPage = document.getElementById(pageId);
         if(targetPage) targetPage.classList.add('active');
-        if(navLinksContainer) navLinksContainer.classList.remove('show');
+
+        if(window.innerWidth <= 1024) sidebar.classList.remove('show');
 
         updateEditalUI();
 
@@ -391,6 +327,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (pageId === 'page-estudos') renderDisciplinas();
         if (pageId === 'page-estatisticas') renderEstatisticas();
         if (pageId === 'page-ciclo') renderCicloConfig();
+        if (pageId === 'page-flashcards') renderFlashcardsDashboard();
     };
 
     navLinks.forEach(l => l.addEventListener('click', (e) => { 
@@ -400,9 +337,22 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }));
     
-    if(menuToggle) menuToggle.addEventListener('click', () => { if(navLinksContainer) navLinksContainer.classList.toggle('show'); });
+    if(sidebarToggle) {
+        sidebarToggle.addEventListener('click', () => {
+            if (window.innerWidth <= 1024) {
+                sidebar.classList.remove('show');
+            } else {
+                sidebar.classList.toggle('collapsed');
+                mainContainer.classList.toggle('collapsed');
+            }
+        });
+    }
 
-    // ===== 9. RENDERIZAÇÃO HOME =====
+    if(mobileMenuBtn) {
+        mobileMenuBtn.addEventListener('click', () => {
+            sidebar.classList.add('show');
+        });
+    }
 
     const filterStudiesByEdital = (list) => {
         const edital = getCurrentEdital();
@@ -613,8 +563,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     };
 
-    // ===== 10. CICLO E REVISÕES =====
-
     const renderCicloFila = (edital) => {
         const container = document.getElementById('ciclo-hoje-list');
         if(!edital || !edital.ciclo) {
@@ -723,6 +671,428 @@ document.addEventListener('DOMContentLoaded', () => {
         list.innerHTML = html || '<p class="empty-state">Tudo em dia!</p>';
     };
 
+    // ===== LÓGICA DE FLASHCARDS (ATUALIZADA COM FASES DE APRENDIZADO) =====
+
+    const getCardsForDeck = (deckId) => {
+        return db.flashcards.filter(c => c.deckId === deckId);
+    };
+
+    const getDueCards = (deckId = null) => {
+        const today = getTodayDate();
+        return db.flashcards.filter(c => {
+            if (deckId && c.deckId !== deckId) return false;
+            // Retorna se a data de revisão for hoje ou antes (independente dos minutos)
+            return !c.nextReview || c.nextReview <= today;
+        });
+    };
+
+    const renderFlashcardsDashboard = () => {
+        const list = document.getElementById('decks-list');
+        list.innerHTML = '';
+        
+        if (db.flashcardDecks.length === 0) {
+            list.innerHTML = '<div class="empty-state" style="grid-column: 1 / -1;">Nenhum deck criado ainda.</div>';
+            return;
+        }
+
+        db.flashcardDecks.forEach(deck => {
+            const allCards = getCardsForDeck(deck.id);
+            const dueCards = getDueCards(deck.id);
+
+            list.innerHTML += `
+            <div class="card deck-item" style="margin-bottom:0; flex-direction: row;">
+                <div class="deck-info">
+                    <strong>${deck.name}</strong>
+                    <small>${dueCards.length} a revisar / ${allCards.length} no total</small>
+                </div>
+                <div style="display:flex; gap:10px;">
+                    <button class="btn-primary" onclick="startFlashcardsStudy('${deck.id}')" ${dueCards.length === 0 ? 'disabled style="opacity:0.5; cursor:not-allowed;"' : ''}>
+                        <i class="ph ph-play"></i> Estudar
+                    </button>
+                    <button class="icon-btn btn-danger" onclick="deleteDeck('${deck.id}')"><i class="ph ph-trash"></i></button>
+                </div>
+            </div>`;
+        });
+
+        const opts = db.flashcardDecks.map(d => `<option value="${d.id}">${d.name}</option>`).join('');
+        document.getElementById('new-card-deck-select').innerHTML = opts;
+        document.getElementById('import-card-deck-select').innerHTML = opts;
+    };
+
+    window.deleteDeck = (id) => {
+        if(confirm("Excluir este deck e TODOS os seus cards?")) {
+            db.flashcardDecks = db.flashcardDecks.filter(d => d.id !== id);
+            db.flashcards = db.flashcards.filter(c => c.deckId !== id);
+            saveData();
+            renderFlashcardsDashboard();
+        }
+    };
+
+    document.getElementById('btn-open-new-deck').addEventListener('click', () => {
+        document.getElementById('new-deck-name').value = '';
+        modalBackdrop.classList.add('active');
+        document.getElementById('new-deck-modal').classList.add('active');
+    });
+
+    document.getElementById('btn-save-deck').addEventListener('click', () => {
+        const name = document.getElementById('new-deck-name').value.trim();
+        if(!name) return alert('Digite o nome do deck');
+        
+        db.flashcardDecks.push({ id: Date.now().toString(), name });
+        saveData();
+        modalBackdrop.classList.remove('active');
+        document.getElementById('new-deck-modal').classList.remove('active');
+        renderFlashcardsDashboard();
+    });
+
+    document.getElementById('btn-open-new-card').addEventListener('click', () => {
+        if(db.flashcardDecks.length === 0) return alert('Crie um deck primeiro!');
+        document.getElementById('new-card-front').value = '';
+        document.getElementById('new-card-back').value = '';
+        modalBackdrop.classList.add('active');
+        document.getElementById('new-card-modal').classList.add('active');
+    });
+
+    document.getElementById('btn-save-card').addEventListener('click', () => {
+        const deckId = document.getElementById('new-card-deck-select').value;
+        const front = document.getElementById('new-card-front').value.trim();
+        const back = document.getElementById('new-card-back').value.trim();
+
+        if(!front || !back) return alert("Preencha frente e verso.");
+
+        db.flashcards.push({
+            id: Date.now().toString(),
+            deckId,
+            front,
+            back,
+            status: 'learning',
+            stepIndex: 0,
+            interval: 0,
+            ease: 2.5,
+            reps: 0,
+            nextReview: getTodayDate()
+        });
+
+        saveData();
+        modalBackdrop.classList.remove('active');
+        document.getElementById('new-card-modal').classList.remove('active');
+        renderFlashcardsDashboard();
+    });
+
+    document.getElementById('btn-open-import-cards').addEventListener('click', () => {
+        if(db.flashcardDecks.length === 0) return alert('Crie um deck primeiro!');
+        document.getElementById('import-cards-input').value = '';
+        modalBackdrop.classList.add('active');
+        document.getElementById('import-cards-modal').classList.add('active');
+    });
+
+    document.getElementById('btn-save-imported-cards').addEventListener('click', () => {
+        const deckId = document.getElementById('import-card-deck-select').value;
+        const text = document.getElementById('import-cards-input').value.trim();
+        
+        if(!text) return alert("Cole os cards no formato Frente;Verso");
+
+        const lines = text.split('\n');
+        let count = 0;
+
+        lines.forEach(line => {
+            const parts = line.split(';');
+            if(parts.length >= 2) {
+                const front = parts[0].trim();
+                const back = parts.slice(1).join(';').trim(); 
+                if(front && back) {
+                    db.flashcards.push({
+                        id: Date.now().toString() + Math.random().toString().substr(2, 5),
+                        deckId,
+                        front,
+                        back,
+                        status: 'learning',
+                        stepIndex: 0,
+                        interval: 0,
+                        ease: 2.5,
+                        reps: 0,
+                        nextReview: getTodayDate()
+                    });
+                    count++;
+                }
+            }
+        });
+
+        if(count > 0) {
+            saveData();
+            modalBackdrop.classList.remove('active');
+            document.getElementById('import-cards-modal').classList.remove('active');
+            renderFlashcardsDashboard();
+            alert(`${count} cards importados com sucesso!`);
+        } else {
+            alert("Nenhum card válido encontrado. Verifique o formato (Frente;Verso).");
+        }
+    });
+
+    document.getElementById('btn-open-scheduled').addEventListener('click', () => {
+        renderScheduledCards();
+        modalBackdrop.classList.add('active');
+        document.getElementById('scheduled-cards-modal').classList.add('active');
+    });
+
+    const renderScheduledCards = () => {
+        const container = document.getElementById('scheduled-cards-container');
+        container.innerHTML = '';
+
+        const today = getTodayDate();
+        const futureCards = db.flashcards.filter(c => c.nextReview && c.nextReview > today);
+
+        if (futureCards.length === 0) {
+            container.innerHTML = '<p class="empty-state">Nenhum card agendado para dias futuros. Você está em dia!</p>';
+            return;
+        }
+
+        const grouped = {};
+        futureCards.forEach(c => {
+            if (!grouped[c.deckId]) grouped[c.deckId] = [];
+            grouped[c.deckId].push(c);
+        });
+
+        let html = '';
+        for (const deckId in grouped) {
+            const deck = db.flashcardDecks.find(d => d.id === deckId);
+            const deckName = deck ? deck.name : 'Deck Removido';
+            const cards = grouped[deckId];
+            
+            cards.sort((a, b) => a.nextReview.localeCompare(b.nextReview));
+
+            html += `<div style="margin-bottom: 1.5rem;">
+                <h4 style="color:var(--primary-color); border-bottom: 1px solid var(--border-color); padding-bottom: 5px; margin-bottom: 10px;">${deckName} <span style="color:var(--text-light); font-size:0.8rem; font-weight:normal;">(${cards.length} cards)</span></h4>
+                <div style="display:flex; flex-direction:column; gap:8px;">`;
+            
+            cards.forEach(c => {
+                html += `<div style="display:flex; justify-content:space-between; align-items:center; background:rgba(0,0,0,0.02); padding:8px 10px; border-radius:6px; border:1px solid var(--border-color); font-size:0.9rem;">
+                    <span style="flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-right:10px;" title="${c.front}">${c.front}</span>
+                    <span style="font-weight:600; color:var(--warning-color); white-space:nowrap;"><i class="ph ph-calendar"></i> ${formatDateBr(c.nextReview)}</span>
+                </div>`;
+            });
+
+            html += `</div></div>`;
+        }
+
+        container.innerHTML = html;
+    };
+
+    // FLUXO DE ESTUDO DE FLASHCARDS
+    document.getElementById('btn-study-all-cards').addEventListener('click', () => {
+        startFlashcardsStudy(null);
+    });
+
+    window.startFlashcardsStudy = (deckId) => {
+        currentStudyDeckId = deckId;
+        flashcardStudyQueue = getDueCards(deckId);
+        
+        if (flashcardStudyQueue.length === 0) return alert('Nenhum card pendente para estudo agora.');
+
+        document.getElementById('flashcards-dashboard').style.display = 'none';
+        document.getElementById('flashcards-study-area').style.display = 'block';
+        
+        if(deckId) {
+            const d = db.flashcardDecks.find(x => x.id === deckId);
+            document.getElementById('study-deck-title').textContent = d ? d.name : "Estudando";
+        } else {
+            document.getElementById('study-deck-title').textContent = "Revisão Geral";
+        }
+
+        renderNextFlashcard();
+    };
+
+    document.getElementById('btn-exit-study').addEventListener('click', () => {
+        document.getElementById('flashcards-study-area').style.display = 'none';
+        document.getElementById('flashcards-dashboard').style.display = 'block';
+        renderFlashcardsDashboard();
+    });
+
+    document.getElementById('fc-container').addEventListener('click', function(e) {
+        if(e.target.tagName !== 'BUTTON' && !e.target.classList.contains('fc-btn')) {
+            this.classList.toggle('flipped');
+            if(this.classList.contains('flipped')) {
+                document.getElementById('fc-actions').style.display = 'flex';
+                document.querySelector('.fc-hint').style.display = 'none';
+            }
+        }
+    });
+
+    const calculateIntervalsPreview = (card) => {
+        const preview = { bad: '', hard: '', good: '', easy: '', showHard: true };
+        
+        // Garante as propriedades base
+        if (!card.status) card.status = 'learning';
+        if (typeof card.stepIndex !== 'number') card.stepIndex = 0;
+
+        if (card.status === 'learning') {
+            preview.showHard = false; // Anki geralmente oculta o Hard em novos
+            if (card.stepIndex === 0) {
+                preview.bad = '1 m';
+                preview.good = '10 m';
+                preview.easy = '4 d';
+            } else {
+                preview.bad = '1 m';
+                preview.good = '1 d';
+                preview.easy = '4 d';
+            }
+        } else {
+            // Card Graduado (já passou da fase de aprendizado)
+            preview.showHard = true;
+            preview.bad = '10 m'; // Lapsos voltam para 10 min
+            
+            let hardInt = Math.max(1, Math.round(card.interval * 1.2));
+            let goodInt = Math.max(1, Math.round(card.interval * card.ease));
+            let easyInt = Math.max(1, Math.round(card.interval * card.ease * 1.3));
+            
+            preview.hard = hardInt + ' d';
+            preview.good = goodInt + ' d';
+            preview.easy = easyInt + ' d';
+        }
+        
+        return preview;
+    };
+
+    const renderNextFlashcard = () => {
+        if (flashcardStudyQueue.length === 0) {
+            document.getElementById('fc-front-text').textContent = "Parabéns!";
+            document.getElementById('fc-back-text').textContent = "Você terminou a revisão deste bloco.";
+            document.getElementById('fc-actions').style.display = 'none';
+            document.querySelector('.fc-hint').style.display = 'none';
+            document.getElementById('study-cards-left').textContent = "0 restantes";
+            document.getElementById('fc-deck-name').textContent = "Concluído";
+            currentFlashcard = null;
+            return;
+        }
+
+        // Ordena a fila para que os cards que precisam de "1 min" ou "10 min" voltem antes 
+        // (Nulls aparecem primeiro como novos)
+        flashcardStudyQueue.sort((a, b) => {
+            const timeA = a.nextReviewTime || 0;
+            const timeB = b.nextReviewTime || 0;
+            return timeA - timeB;
+        });
+
+        currentFlashcard = flashcardStudyQueue[0];
+        document.getElementById('study-cards-left').textContent = `${flashcardStudyQueue.length} restantes`;
+        
+        const deckObj = db.flashcardDecks.find(d => d.id === currentFlashcard.deckId);
+        document.getElementById('fc-deck-name').textContent = deckObj ? deckObj.name : "Card";
+
+        document.getElementById('fc-front-text').textContent = currentFlashcard.front;
+        document.getElementById('fc-back-text').textContent = currentFlashcard.back;
+
+        // Atualiza botões
+        const previews = calculateIntervalsPreview(currentFlashcard);
+        document.querySelector('.fc-bad small').textContent = previews.bad;
+        
+        const hardBtn = document.querySelector('.fc-hard');
+        if (previews.showHard) {
+            hardBtn.style.display = 'block';
+            document.getElementById('lbl-hard').textContent = previews.hard;
+        } else {
+            hardBtn.style.display = 'none';
+        }
+        
+        document.getElementById('lbl-good').textContent = previews.good;
+        document.getElementById('lbl-easy').textContent = previews.easy;
+
+        document.getElementById('fc-container').classList.remove('flipped');
+        document.getElementById('fc-actions').style.display = 'none';
+        document.querySelector('.fc-hint').style.display = 'block';
+    };
+
+    window.rateFlashcard = (quality) => {
+        if (!currentFlashcard) return;
+
+        let card = db.flashcards.find(c => c.id === currentFlashcard.id);
+        if(!card) return;
+
+        // Proteção de dados legados
+        if (!card.status) card.status = 'learning';
+        if (typeof card.stepIndex !== 'number') card.stepIndex = 0;
+        if (typeof card.reps !== 'number') card.reps = 0;
+        if (typeof card.interval !== 'number') card.interval = 0;
+        if (typeof card.ease !== 'number') card.ease = 2.5;
+
+        const today = getTodayDate();
+        const now = Date.now();
+
+        if (card.status === 'learning') {
+            if (quality === 1) { // Errei
+                card.stepIndex = 0;
+                card.nextReviewTime = now + 1 * 60000; // +1 minuto
+                card.nextReview = today; // Mantém no dia atual
+                // Empurra pro fim da fila para revisar hoje ainda
+                flashcardStudyQueue.push(flashcardStudyQueue.shift()); 
+                saveData();
+                renderNextFlashcard();
+                return;
+            } 
+            else if (quality === 3) { // Bom
+                if (card.stepIndex === 0) {
+                    card.stepIndex = 1;
+                    card.nextReviewTime = now + 10 * 60000; // +10 min
+                    card.nextReview = today;
+                    // Empurra pro fim da fila
+                    flashcardStudyQueue.push(flashcardStudyQueue.shift()); 
+                    saveData();
+                    renderNextFlashcard();
+                    return;
+                } else {
+                    // Gradua o card!
+                    card.status = 'graduated';
+                    card.interval = 1;
+                    card.reps = 1;
+                    card.nextReview = addDays(today, 1);
+                    card.nextReviewTime = null;
+                }
+            } 
+            else if (quality === 4) { // Fácil
+                card.status = 'graduated';
+                card.interval = 4;
+                card.reps = 1;
+                card.nextReview = addDays(today, 4);
+                card.nextReviewTime = null;
+            }
+        } 
+        else { // STATUS: GRADUATED
+            if (quality === 1) { // Errei (Lapse / Esquecimento)
+                card.status = 'learning';
+                card.stepIndex = 0;
+                card.ease = Math.max(1.3, card.ease - 0.20);
+                card.interval = 0;
+                card.nextReviewTime = now + 10 * 60000; // Volta pra fila de hoje (10m)
+                card.nextReview = today;
+                
+                flashcardStudyQueue.push(flashcardStudyQueue.shift()); 
+                saveData();
+                renderNextFlashcard();
+                return;
+            } else {
+                card.reps++;
+                if (quality === 2) { // Difícil
+                    card.interval = Math.max(1, Math.round(card.interval * 1.2));
+                    card.ease = Math.max(1.3, card.ease - 0.15);
+                } else if (quality === 3) { // Bom
+                    card.interval = Math.max(1, Math.round(card.interval * card.ease));
+                } else if (quality === 4) { // Fácil
+                    card.ease += 0.15;
+                    card.interval = Math.max(1, Math.round(card.interval * card.ease * 1.3));
+                }
+                card.nextReview = addDays(today, card.interval);
+                card.nextReviewTime = null;
+            }
+        }
+
+        // Se o código chegou aqui, o card finalizou o estudo de HOJE (sai da fila)
+        flashcardStudyQueue.shift();
+        saveData();
+        renderNextFlashcard();
+    };
+
+    // ===== FIM FLASHCARDS =====
+
     window.openRevisaoModal = (id, idx) => {
         const e = db.estudos.find(x => x.id === id);
         if (!e) return;
@@ -739,7 +1109,6 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('revisao-modal').classList.add('active');
     };
 
-    // CORREÇÃO: BOTÃO SALVAR REVISÃO (SEM DUPLICIDADE)
     const btnSalvarRev = document.getElementById('btn-salvar-revisao');
     if(btnSalvarRev) btnSalvarRev.addEventListener('click', async () => {
         if(isSaving) return;
@@ -759,7 +1128,6 @@ document.addEventListener('DOMContentLoaded', () => {
             
             const originalStudy = db.estudos.find(x => x.id === id);
             if (originalStudy && originalStudy.revisoes[idx]) {
-                // 1. Atualiza Localmente (UI instantânea)
                 originalStudy.revisoes[idx].concluida = true;
                 
                 const editalIdRef = originalStudy.editalId || currentEditalId;
@@ -795,16 +1163,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     db.tempoEstudos.push(novoTempoRev);
                 }
                 
-                // 2. Sincroniza com o Servidor (MÉTODO LEVE)
-                // Se gerou novos dados, envia só eles
                 if (novoEstudoRev || novoTempoRev) {
                     await saveIncremental({ estudo: novoEstudoRev, tempo: novoTempoRev });
                 }
 
-                // Atualiza o status "concluída" da revisão (ROTA PUT ESPECÍFICA)
                 await updateRevisionStatus(id, idx);
 
-                // ATUALIZAÇÃO GERAL DE TELAS
                 renderHomePage(); 
                 renderDisciplinas(); 
                 if(document.getElementById('page-estatisticas').classList.contains('active')) renderEstatisticas();
@@ -822,8 +1186,6 @@ document.addEventListener('DOMContentLoaded', () => {
             isSaving = false;
         }
     });
-
-    // ===== 11. GESTÃO DE DISCIPLINAS =====
 
     const renderDisciplinas = () => {
         const list = document.getElementById('disciplinas-list'); list.innerHTML = '';
@@ -904,7 +1266,6 @@ document.addEventListener('DOMContentLoaded', () => {
             db.assuntosManuais.splice(index, 1); 
             saveData(); 
             
-            // ATUALIZAÇÃO GERAL
             renderDisciplinas(); 
             if(document.getElementById('page-estatisticas').classList.contains('active')) renderEstatisticas();
             renderHomePage(); 
@@ -1094,9 +1455,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // ===== 12. CONFIG CICLO (DENTRO DO EDITAL) =====
-
-    // ATUALIZADO: Configuração de Ciclo com Filtro de "0" para Trilhas
     const btnGerarCiclo = document.getElementById('gerar-ciclo-btn');
     if(btnGerarCiclo) btnGerarCiclo.addEventListener('click', () => { 
         const edital = getCurrentEdital();
@@ -1107,7 +1465,6 @@ document.addEventListener('DOMContentLoaded', () => {
         let deck = []; 
         
         if (edital.isTrilha) {
-            // 1. Captura disciplinas permitidas (valor > 0 no input)
             const allowedDisciplines = [];
             document.querySelectorAll('.ciclo-peso').forEach(input => {
                 if (parseInt(input.value) > 0) {
@@ -1119,7 +1476,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
             let allTasks = [];
             edital.disciplinas.forEach(d => {
-                // 2. Filtra: Só inclui assuntos se a disciplina estiver permitida
                 if (allowedDisciplines.includes(d.nome)) {
                     d.assuntos.forEach(a => {
                         allTasks.push({ nomeDisc: d.nome, assunto: a, taskNum: getTaskNumber(a) });
@@ -1127,7 +1483,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             });
 
-            // 3. Ordena e gera o deck
             allTasks.sort((a, b) => a.taskNum - b.taskNum);
             deck = allTasks.map(t => t.nomeDisc);
             
@@ -1176,8 +1531,6 @@ document.addEventListener('DOMContentLoaded', () => {
         list.innerHTML = html; 
     };
 
-    // ===== 13. REGISTRO MANUAL =====
-
     window.openRegistroModal = (disc = null, assuntoPreSelecionado = null, fromListClick = false) => {
         const edital = getCurrentEdital();
         if (!edital) return alert("Crie um edital primeiro!");
@@ -1192,8 +1545,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const semDataCheckbox = document.getElementById('reg-sem-data');
         
         document.getElementById('reg-novo-assunto').value = ''; 
-        
-        // LIMPAR NOVOS CAMPOS
         document.getElementById('reg-inicio').value = '';
         document.getElementById('reg-fim').value = '';
 
@@ -1269,10 +1620,9 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    // CORREÇÃO: BOTÃO SALVAR REGISTRO COM TRAVA DE SEGURANÇA (isSaving)
     const btnSalvarRegistro = document.getElementById('btn-salvar-registro');
     if(btnSalvarRegistro) btnSalvarRegistro.addEventListener('click', async () => {
-        if(isSaving) return; // BLOQUEIA SE JÁ ESTIVER SALVANDO
+        if(isSaving) return;
         isSaving = true;
 
         const btn = btnSalvarRegistro;
@@ -1291,7 +1641,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (!disc) { isSaving = false; return alert("Selecione disciplina."); }
             
-            // CAPTURAR CAMPOS DE INTERVALO
             const pgInicio = document.getElementById('reg-inicio').value.trim();
             const pgFim = document.getElementById('reg-fim').value.trim();
             let intervaloStr = null;
@@ -1306,7 +1655,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (dObj && !dObj.assuntos.includes(novoAssunto)) { 
                     dObj.assuntos.push(novoAssunto); 
                     dObj.assuntos.sort(); 
-                    // Nota: Alterar array de assuntos do edital exige salvamento do 'db' completo depois
                 } 
             } else if (assuntoSelecionado) { assuntoFinal = assuntoSelecionado; }
             
@@ -1327,7 +1675,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 ];
             }
 
-            // OBJETO PRINCIPAL DO ESTUDO
             const novoEstudo = { 
                 id: Date.now().toString(), 
                 editalId: edital.id, 
@@ -1342,7 +1689,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 revisoes: revisoesArray 
             }; 
             
-            // OBJETO DE TEMPO (SEPARADO)
             let novoTempo = null;
             if (totalT > 0 || totalQ > 0 || finalizado) { 
                 novoTempo = { 
@@ -1356,14 +1702,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 }; 
             }
             
-            // ATUALIZAÇÃO OTIMISTA: Atualiza a tela do usuário imediatamente
             db.estudos.push(novoEstudo);
             if (novoTempo) db.tempoEstudos.push(novoTempo);
             
             let precisaSalvarDBCompleto = false;
 
-            // Se marcou como finalizado ou criou novo assunto, alterou a estrutura do Edital/Manual
-            // Esses dados ainda vivem no JSON principal, então marcamos para salvar o DB completo em background
             if (finalizado) { 
                 if(!db.assuntosManuais.some(m => m.disciplina === disc && m.assunto === assuntoFinal && m.editalId === edital.id)) { 
                     db.assuntosManuais.push({disciplina: disc, assunto: assuntoFinal, editalId: edital.id}); 
@@ -1374,22 +1717,18 @@ document.addEventListener('DOMContentLoaded', () => {
             
             if (!isLegacyRegistration) {
                 rotateCycle(disc); 
-                precisaSalvarDBCompleto = true; // Girar ciclo altera configuração do edital
+                precisaSalvarDBCompleto = true; 
             }
             
             btn.textContent = "Sincronizando...";
             btn.disabled = true;
 
-            // 1. ENVIO LEVE (INCREMENTAL)
             await saveIncremental({ estudo: novoEstudo, tempo: novoTempo });
 
-            // 2. ENVIO PESADO (BACKGROUND)
-            // Apenas se houver mudança estrutural (novo assunto, ciclo)
             if (precisaSalvarDBCompleto) {
                 saveData(); 
             }
 
-            // ATUALIZAÇÃO GERAL DA UI (PARA TODAS AS TELAS)
             renderHomePage(); 
             renderDisciplinas(); 
             
@@ -1406,11 +1745,9 @@ document.addEventListener('DOMContentLoaded', () => {
         } finally {
             btn.textContent = originalText;
             btn.disabled = false;
-            isSaving = false; // LIBERA A TRAVA
+            isSaving = false;
         }
     });
-
-    // ===== 14. ESTATÍSTICAS =====
 
     const renderEstatisticas = () => {
         const edital = getCurrentEdital();
@@ -1449,7 +1786,6 @@ document.addEventListener('DOMContentLoaded', () => {
         renderHistorico(estudosF, ini, fim);
     };
 
-    // FUNÇÃO NOVA: GERAR PDF COM TEMPO
     const generatePDF = () => {
         const { jsPDF } = window.jspdf;
         if (!jsPDF) return alert("Erro: Biblioteca PDF não carregada.");
@@ -1473,7 +1809,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const doc = new jsPDF();
 
-        // Título
         doc.setFontSize(18);
         doc.text(`Relatório de Estudos - ${edital.nome}`, 14, 20);
         
@@ -1481,13 +1816,12 @@ document.addEventListener('DOMContentLoaded', () => {
         const filtroTexto = `Gerado em: ${new Date().toLocaleDateString()} | Filtro: ${dFiltro === 'todas' ? 'Todas Disciplinas' : dFiltro}`;
         doc.text(filtroTexto, 14, 28);
 
-        // MUDANÇA: Adicionado coluna "Tempo" e mapeamento
         const tableBody = estudosF.map(e => [
             formatDateBr(e.data),
             e.disciplina,
             e.assunto,
             e.intervalo || "-",
-            e.tempo ? formatDuration(e.tempo) : "-", // Mostra o tempo formatado ou "-"
+            e.tempo ? formatDuration(e.tempo) : "-", 
             e.total > 0 ? `${e.acertos}/${e.total} (${Math.round(e.percentual)}%)` : "-",
         ]);
 
@@ -1502,7 +1836,6 @@ document.addEventListener('DOMContentLoaded', () => {
         doc.save(`relatorio_estudos_${getTodayDate()}.pdf`);
     };
 
-    // EVENT LISTENERS PARA FILTROS E PDF
     const setupStatsListeners = () => {
         const inputs = ['filter-disciplina', 'filter-data-inicio', 'filter-data-fim'];
         inputs.forEach(id => {
@@ -1656,8 +1989,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    // ===== 15. TIMER =====
-
     const initTimerDOM = () => {
         const display = document.getElementById('timer-display'); 
         const btnToggle = document.getElementById('timer-toggle-btn'); 
@@ -1715,8 +2046,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     };
 
-    // ===== 16. PERFIL E ADMIN =====
-
     const openProfileModal = () => {
         document.getElementById('profile-name').value = currentUser.name || '';
         document.getElementById('profile-email').value = currentUser.email || '';
@@ -1726,9 +2055,7 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const btnProfile = document.getElementById('btn-profile');
-    const btnProfileMobile = document.getElementById('mobile-btn-profile');
     if(btnProfile) btnProfile.addEventListener('click', openProfileModal);
-    if(btnProfileMobile) btnProfileMobile.addEventListener('click', (e) => { e.preventDefault(); openProfileModal(); });
 
     const btnSaveProfile = document.getElementById('btn-save-profile');
     if(btnSaveProfile) {
@@ -1776,9 +2103,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const data = await res.json();
             
             renderAdminUsers(data.users);
-            updateRegButton(data.registrationOpen);
 
-            // --- INJEÇÃO DO BOTÃO DE LIMPEZA (NOVIDADE) ---
             const modalBody = document.querySelector('#admin-modal .modal-body');
             
             if (!document.getElementById('btn-cleanup-db')) {
@@ -1800,7 +2125,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 document.getElementById('btn-cleanup-db').addEventListener('click', runCleanup);
             }
-            // ----------------------------------------------
             
             modalBackdrop.classList.add('active');
             document.getElementById('admin-modal').classList.add('active');
@@ -1810,7 +2134,47 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // --- FUNÇÃO DE LIMPEZA ---
+    const btnAdminCreateUser = document.getElementById('btn-admin-create-user');
+    if(btnAdminCreateUser) {
+        btnAdminCreateUser.addEventListener('click', async () => {
+            const name = document.getElementById('admin-new-name').value;
+            const email = document.getElementById('admin-new-email').value;
+            const password = document.getElementById('admin-new-pwd').value;
+
+            if(!name || !email || !password) return alert("Preencha nome, email e senha.");
+
+            try {
+                const btn = btnAdminCreateUser;
+                btn.textContent = "Criando...";
+                btn.disabled = true;
+
+                const res = await fetch(`${API_URL}/admin/create-user`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'x-auth-token': authToken },
+                    body: JSON.stringify({ name, email, password })
+                });
+                const data = await res.json();
+                
+                if(res.ok) {
+                    alert(data.msg);
+                    document.getElementById('admin-new-name').value = '';
+                    document.getElementById('admin-new-email').value = '';
+                    document.getElementById('admin-new-pwd').value = '';
+                    loadAdminData(); 
+                } else {
+                    alert("Erro: " + data.msg);
+                }
+                
+                btn.innerHTML = '<i class="ph ph-user-plus"></i> Cadastrar Usuário';
+                btn.disabled = false;
+            } catch(e) {
+                alert("Erro de conexão ao criar usuário.");
+                btnAdminCreateUser.innerHTML = '<i class="ph ph-user-plus"></i> Cadastrar Usuário';
+                btnAdminCreateUser.disabled = false;
+            }
+        });
+    }
+
     async function runCleanup() {
         if(!confirm("Tem certeza? Isso irá apagar registros duplicados de TODOS os usuários. Essa ação não pode ser desfeita.")) return;
         
@@ -1841,9 +2205,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     const btnAdminPanel = document.getElementById('btn-admin-panel');
-    const btnAdminMobile = document.getElementById('mobile-btn-admin');
     if(btnAdminPanel) btnAdminPanel.addEventListener('click', loadAdminData);
-    if(btnAdminMobile) btnAdminMobile.addEventListener('click', (e) => { e.preventDefault(); loadAdminData(); });
 
     function renderAdminUsers(users) {
         const tbody = document.getElementById('admin-users-list');
@@ -1867,27 +2229,6 @@ document.addEventListener('DOMContentLoaded', () => {
             } catch(e) { alert("Erro servidor."); }
         }
     };
-
-    function updateRegButton(isOpen) {
-        const btn = document.getElementById('btn-toggle-reg');
-        if(isOpen) {
-            btn.textContent = "Bloquear Novos Registros";
-            btn.className = "btn-sm btn-danger";
-        } else {
-            btn.textContent = "Liberar Novos Registros";
-            btn.className = "btn-sm btn-success";
-        }
-        btn.onclick = toggleRegistration;
-    }
-
-    async function toggleRegistration() {
-        try {
-            const res = await fetch(`${API_URL}/admin/toggle-registration`, { method: 'POST', headers: { 'x-auth-token': authToken } });
-            const data = await res.json();
-            updateRegButton(data.status);
-            alert(data.msg);
-        } catch(e) { alert("Erro."); }
-    }
     
     const toggleTheme = () => {
         const t = document.body.dataset.theme==='dark'?'light':'dark';
@@ -1896,9 +2237,6 @@ document.addEventListener('DOMContentLoaded', () => {
     };
     
     document.getElementById('theme-toggle').addEventListener('click', toggleTheme);
-    document.getElementById('mobile-btn-theme').addEventListener('click', (e) => { e.preventDefault(); toggleTheme(); });
-
-    // ===== 17. INICIALIZAÇÃO =====
 
     document.querySelectorAll('.modal-close-btn').forEach(b => b.addEventListener('click', () => { modalBackdrop.classList.remove('active'); document.querySelectorAll('.modal').forEach(m => m.classList.remove('active')); }));
     
@@ -1931,9 +2269,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     pages.forEach(p => observer.observe(p, { attributes: true, attributeFilter: ['class'] }));
 
-    // Configura os listeners dos filtros e botão PDF na inicialização
     setupStatsListeners();
-
     checkAuth();
     initTimerDOM();
 });

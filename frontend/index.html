@@ -8,10 +8,8 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-    
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.1/jspdf.plugin.autotable.min.js"></script>
-
     <script src="https://unpkg.com/@phosphor-icons/web"></script>
     <link rel="stylesheet" href="style.css">
 </head>
@@ -20,13 +18,12 @@
     <div id="auth-screen" style="position:fixed; top:0; left:0; width:100%; height:100%; background:var(--bg-color); z-index:9999; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:20px;">
         <div class="card" style="width:100%; max-width:400px; text-align:center; padding: 2rem;">
             <h2 style="color:var(--primary-color); margin-bottom:20px;">StudyApp <i class="ph ph-rocket-launch"></i></h2>
-            <p style="margin-bottom:20px; color:var(--text-light)">Seus estudos na nuvem.</p>
+            <p style="margin-bottom:20px; color:var(--text-light)">Acesso restrito.</p>
             
             <input type="email" id="login-email" placeholder="Email" style="margin-bottom:10px; padding:12px; width:100%;">
             <input type="password" id="login-password" placeholder="Senha" style="margin-bottom:20px; padding:12px; width:100%;">
             
             <button id="btn-login" class="btn-primary full-width" style="margin-bottom:10px;">Entrar</button>
-            <button id="btn-register" class="btn-secondary full-width">Criar Nova Conta</button>
             
             <p id="login-msg" style="margin-top:15px; color:var(--danger-color); font-weight:bold; font-size:0.9rem; min-height: 20px;"></p>
         </div>
@@ -34,53 +31,40 @@
 
     <audio id="timer-sound" src="https://actions.google.com/sounds/v1/alarms/alarm_clock_short.ogg" preload="auto"></audio>
 
-    <nav class="navbar">
-        <div style="display:flex; align-items:center; gap:15px; flex:1;">
+    <button id="mobile-menu-btn" class="sidebar-toggle-mobile"><i class="ph ph-list"></i></button>
+
+    <aside id="sidebar" class="sidebar" style="display: none;">
+        <div class="sidebar-header">
             <div class="nav-brand">StudyApp <i class="ph ph-rocket-launch"></i></div>
-            
-            <select id="navbar-edital-select" class="nav-select" title="Trocar Edital">
-                </select>
+            <button id="sidebar-toggle" class="icon-btn" title="Recolher Menu"><i class="ph ph-caret-left"></i></button>
+        </div>
+        
+        <div class="sidebar-edital">
+            <select id="navbar-edital-select" class="nav-select" title="Trocar Edital"></select>
         </div>
         
         <ul class="nav-links">
-            <li><a href="#" class="nav-link active" data-page="page-home"><i class="ph ph-house"></i> Dashboard</a></li>
-            <li><a href="#" class="nav-link" data-page="page-estudos"><i class="ph ph-books"></i> Estudos</a></li>
-            <li><a href="#" class="nav-link" data-page="page-ciclo"><i class="ph ph-arrows-clockwise"></i> Ciclo</a></li>
-            <li><a href="#" class="nav-link" data-page="page-estatisticas"><i class="ph ph-chart-bar"></i> Estatísticas</a></li>
-
-            <li class="mobile-only separator"></li>
-            <li class="mobile-only">
-                <a href="#" id="mobile-btn-theme" class="nav-link"><i class="ph ph-moon"></i> Alternar Tema</a>
-            </li>
-            <li class="mobile-only">
-                <a href="#" id="mobile-btn-admin" class="nav-link" style="display:none; color:var(--primary-color);"><i class="ph ph-shield-check"></i> Painel Admin</a>
-            </li>
-            <li class="mobile-only">
-                <a href="#" id="mobile-btn-profile" class="nav-link"><i class="ph ph-user"></i> Meu Perfil</a>
-            </li>
-            <li class="mobile-only">
-                <a href="#" id="mobile-btn-logout" class="nav-link" style="color:var(--danger-color);"><i class="ph ph-sign-out"></i> Sair</a>
-            </li>
+            <li><a href="#" class="nav-link active" data-page="page-home"><i class="ph ph-house"></i> <span>Dashboard</span></a></li>
+            <li><a href="#" class="nav-link" data-page="page-estudos"><i class="ph ph-books"></i> <span>Estudos</span></a></li>
+            <li><a href="#" class="nav-link" data-page="page-ciclo"><i class="ph ph-arrows-clockwise"></i> <span>Ciclo</span></a></li>
+            <li><a href="#" class="nav-link" data-page="page-flashcards"><i class="ph ph-cards"></i> <span>Flashcards</span></a></li>
+            <li><a href="#" class="nav-link" data-page="page-estatisticas"><i class="ph ph-chart-bar"></i> <span>Estatísticas</span></a></li>
         </ul>
 
-        <div class="nav-controls">
-            <br>
+        <div class="sidebar-footer">
             <div class="nav-streak" title="Ofensiva (Dias Seguidos)">
                 <i class="ph ph-fire-simple"></i> <span id="nav-streak-count">0</span>
             </div>
-
-            <button id="theme-toggle" class="icon-btn desktop-only" title="Alternar Tema"><i class="ph ph-moon"></i></button>
-            <button id="btn-admin-panel" class="icon-btn desktop-only" style="display:none; color: var(--primary-color); border-color:var(--primary-color);" title="Painel Admin"><i class="ph ph-shield-check"></i></button>
-            <button id="btn-profile" class="icon-btn desktop-only" title="Meu Perfil"><i class="ph ph-user"></i></button>
-            <button id="btn-logout" class="icon-btn btn-danger-icon desktop-only" title="Sair"><i class="ph ph-sign-out"></i></button>
-            
-            <button id="menu-toggle" class="icon-btn">
-                <i class="ph ph-list"></i>
-            </button>
+            <div class="sidebar-controls">
+                <button id="theme-toggle" class="icon-btn" title="Alternar Tema"><i class="ph ph-moon"></i></button>
+                <button id="btn-admin-panel" class="icon-btn" style="display:none; color: var(--primary-color); border-color:var(--primary-color);" title="Painel Admin"><i class="ph ph-shield-check"></i></button>
+                <button id="btn-profile" class="icon-btn" title="Meu Perfil"><i class="ph ph-user"></i></button>
+                <button id="btn-logout" class="icon-btn btn-danger-icon" title="Sair"><i class="ph ph-sign-out"></i></button>
+            </div>
         </div>
-    </nav>
+    </aside>
 
-    <main class="container">
+    <main class="container" style="display: none;">
         
         <section id="page-home" class="page active">
             
@@ -176,7 +160,7 @@
         <section id="page-estudos" class="page">
             <h2>Gestão de Editais e Disciplinas</h2>
             
-            <div class="card" style="background: rgba(79, 70, 229, 0.05); border-color: var(--primary-color);">
+            <div class="card" style="background: rgba(37, 99, 235, 0.05); border-color: var(--primary-color);">
                 <div style="display:flex; flex-direction:column; gap:10px;">
                     <label style="font-weight:600; color:var(--primary-color);">Gerenciar Edital:</label>
                     <div style="display:flex; gap:10px;">
@@ -226,6 +210,62 @@
             <div class="card">
                 <h3>3. Fila Atual</h3>
                 <div id="ciclo-resultado-list"></div>
+            </div>
+        </section>
+
+        <section id="page-flashcards" class="page">
+            <div id="flashcards-dashboard">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem; flex-wrap:wrap; gap:10px;">
+                    <h2 style="margin:0"><i class="ph ph-cards"></i> Meus Decks (Flashcards)</h2>
+                    <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                        <button id="btn-open-scheduled" class="btn-secondary" title="Ver Cronograma Futuro"><i class="ph ph-calendar"></i> Agendados</button>
+                        <button id="btn-open-import-cards" class="btn-secondary"><i class="ph ph-list-plus"></i> Cards em Lote</button>
+                        <button id="btn-open-new-deck" class="btn-secondary"><i class="ph ph-folder-plus"></i> Novo Deck</button>
+                        <button id="btn-open-new-card" class="btn-primary"><i class="ph ph-plus"></i> Novo Card</button>
+                    </div>
+                </div>
+                
+                <div class="card" style="background: rgba(37, 99, 235, 0.05); margin-bottom:1.5rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap:wrap; gap:15px;">
+                        <div>
+                            <h3 style="margin:0; color:var(--primary-color)">Revisão Geral</h3>
+                            <p style="margin:0; font-size:0.9rem; color:var(--text-light)">Revisar todos os cards pendentes hoje.</p>
+                        </div>
+                        <button id="btn-study-all-cards" class="btn-primary btn-lg"><i class="ph ph-play"></i> Iniciar Estudos</button>
+                    </div>
+                </div>
+
+                <div id="decks-list" class="dashboard-grid">
+                    </div>
+            </div>
+
+            <div id="flashcards-study-area" style="display: none;">
+                <div class="card" style="max-width: 600px; margin: 0 auto;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; border-bottom:1px solid var(--border-color); padding-bottom:10px;">
+                        <button id="btn-exit-study" class="icon-btn"><i class="ph ph-arrow-left"></i></button>
+                        <h4 id="study-deck-title" style="margin:0;">Estudando</h4>
+                        <span id="study-cards-left" style="font-size:0.9rem; font-weight:600; color:var(--primary-color)">0 restantes</span>
+                    </div>
+                    
+                    <div class="fc-container" id="fc-container">
+                        <div class="fc-inner" id="fc-inner">
+                            <div class="fc-front">
+                                <span class="fc-tag" id="fc-deck-name">Tag</span>
+                                <h2 id="fc-front-text" style="margin-top:20px; font-weight:500;">Carregando...</h2>
+                                <p class="fc-hint"><i class="ph ph-hand-tap"></i> Clique para virar</p>
+                            </div>
+                            <div class="fc-back">
+                                <h3 id="fc-back-text" style="font-weight:400;">...</h3>
+                                <div class="fc-actions" id="fc-actions" style="display: none;">
+                                    <button class="fc-btn fc-bad" onclick="rateFlashcard(1)">Errei<br><small>1 min</small></button>
+                                    <button class="fc-btn fc-hard" onclick="rateFlashcard(2)">Difícil<br><small id="lbl-hard"></small></button>
+                                    <button class="fc-btn fc-good" onclick="rateFlashcard(3)">Bom<br><small id="lbl-good"></small></button>
+                                    <button class="fc-btn fc-easy" onclick="rateFlashcard(4)">Fácil<br><small id="lbl-easy"></small></button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </section>
 
@@ -292,6 +332,76 @@
 
     <div id="modal-backdrop" class="modal-backdrop"></div>
     
+    <div id="new-deck-modal" class="modal">
+        <div class="modal-header">
+            <h3>Novo Deck (Caixa)</h3>
+            <button class="modal-close-btn"><i class="ph ph-x"></i></button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group">
+                <label>Nome do Deck</label>
+                <input type="text" id="new-deck-name" placeholder="Ex: Legislação Específica">
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button id="btn-save-deck" class="btn-primary full-width">Criar Deck</button>
+        </div>
+    </div>
+
+    <div id="new-card-modal" class="modal">
+        <div class="modal-header">
+            <h3>Novo Flashcard Individual</h3>
+            <button class="modal-close-btn"><i class="ph ph-x"></i></button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group">
+                <label>Deck de Destino</label>
+                <select id="new-card-deck-select"></select>
+            </div>
+            <div class="form-group">
+                <label>Frente (Pergunta)</label>
+                <textarea id="new-card-front" rows="3" placeholder="O que é o Princípio da Legalidade?"></textarea>
+            </div>
+            <div class="form-group">
+                <label>Verso (Resposta)</label>
+                <textarea id="new-card-back" rows="4" placeholder="A Administração Pública só pode fazer o que a lei autoriza..."></textarea>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button id="btn-save-card" class="btn-primary full-width">Salvar Card</button>
+        </div>
+    </div>
+
+    <div id="import-cards-modal" class="modal">
+        <div class="modal-header">
+            <h3>Adicionar Cards em Lote</h3>
+            <button class="modal-close-btn"><i class="ph ph-x"></i></button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group">
+                <label>Deck de Destino</label>
+                <select id="import-card-deck-select"></select>
+            </div>
+            <div class="form-group">
+                <label>Cole os cards (Formato: <span style="color:var(--primary-color)">Pergunta ; Resposta</span>)</label>
+                <textarea id="import-cards-input" rows="8" placeholder="Pergunta 1; Resposta 1&#10;Pergunta 2; Resposta 2&#10;O que é X?; X significa Y..."></textarea>
+                <p style="font-size:0.8rem; color:var(--text-light); margin-top:5px;">Um card por linha. Use o <strong>ponto e vírgula (;)</strong> para separar a frente do verso.</p>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button id="btn-save-imported-cards" class="btn-primary full-width"><i class="ph ph-list-plus"></i> Salvar Cards</button>
+        </div>
+    </div>
+
+    <div id="scheduled-cards-modal" class="modal">
+        <div class="modal-header">
+            <h3>Cronograma de Revisões Futuras</h3>
+            <button class="modal-close-btn"><i class="ph ph-x"></i></button>
+        </div>
+        <div class="modal-body" id="scheduled-cards-container" style="max-height: 60vh; overflow-y: auto;">
+            </div>
+    </div>
+
     <div id="new-edital-modal" class="modal">
         <div class="modal-header">
             <h3>Criar Novo Edital</h3>
@@ -302,15 +412,12 @@
                 <label>Nome do Concurso/Edital</label>
                 <input type="text" id="new-edital-name" placeholder="Ex: Receita Federal, ENEM...">
             </div>
-            <div class="form-group checkbox-row" style="background: rgba(79, 70, 229, 0.05); padding: 10px; border-radius: 8px; border: 1px solid var(--primary-color);">
+            <div class="form-group checkbox-row" style="background: rgba(37, 99, 235, 0.05); padding: 10px; border-radius: 8px; border: 1px solid var(--primary-color);">
                 <input type="checkbox" id="new-edital-is-trilha" style="width:auto; transform: scale(1.3); accent-color: var(--primary-color);">
                 <label for="new-edital-is-trilha" style="margin:0; font-weight:600; cursor:pointer; color: var(--text-color);">
                     Modo Trilha Estratégica <i class="ph ph-strategy" style="margin-left:5px;"></i>
                 </label>
             </div>
-            <p style="font-size:0.8rem; color:var(--text-light); margin-top:5px;">
-                No modo trilha, você importa tarefas em massa via CSV em vez de criar disciplinas manualmente.
-            </p>
         </div>
         <div class="modal-footer">
             <button id="btn-save-edital" class="btn-primary full-width">Criar Edital</button>
@@ -323,15 +430,9 @@
             <button class="modal-close-btn"><i class="ph ph-x"></i></button>
         </div>
         <div class="modal-body">
-            <p style="margin-bottom:15px; color:var(--text-light); font-size:0.9rem;">
-                Cole os dados abaixo. O formato deve ser texto separado por ponto e vírgula (;) contendo:<br>
-                <strong>Nº Trilha; Nº Tarefa; Disciplina; Título da Tarefa</strong>
-            </p>
             <div class="form-group">
                 <textarea id="trilha-csv-input" rows="10" placeholder="Exemplo:
-01; 01; Português; Acentuação Gráfica
-01; 02; Direito Constitucional; Artigo 5º
-01; 03; Português; Crase"></textarea>
+01; 01; Português; Acentuação Gráfica"></textarea>
             </div>
         </div>
         <div class="modal-footer">
@@ -401,7 +502,7 @@
             </div>
 
             <div style="display:flex; gap:10px; flex-direction:column; margin-bottom:15px;">
-                <div class="form-group checkbox-row" style="background: rgba(34, 197, 94, 0.1); padding: 10px; border-radius: 8px; border: 1px solid var(--success-color);">
+                <div class="form-group checkbox-row" style="background: rgba(16, 185, 129, 0.1); padding: 10px; border-radius: 8px; border: 1px solid var(--success-color);">
                     <input type="checkbox" id="reg-finalizado" style="width:auto; transform: scale(1.3); accent-color: var(--success-color);">
                     <label for="reg-finalizado" style="margin:0; font-weight:600; cursor:pointer; color: var(--text-color);">
                         Marcar assunto como <span style="color:var(--success-color)">CONCLUÍDO</span>
@@ -492,9 +593,6 @@
             <div class="form-group">
                 <label>Assuntos (separados por ponto e vírgula)</label>
                 <textarea id="new-disc-subjects" rows="5" placeholder="Ex: Atos Administrativos; Poderes; Licitações"></textarea>
-                <p style="font-size:0.8rem; color:var(--text-light); margin-top:5px;">
-                    Dica: Copie o edital e separe os tópicos por <strong>;</strong>
-                </p>
             </div>
         </div>
         <div class="modal-footer">
@@ -538,11 +636,15 @@
         </div>
         <div class="modal-body">
             <div class="card" style="margin-bottom: 20px; padding: 15px; border: 1px solid var(--border-color);">
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <strong>Novos cadastros:</strong>
-                    <button id="btn-toggle-reg" class="btn-sm btn-secondary">Carregando...</button>
+                <h4 style="margin-bottom: 10px;">Criar Novo Usuário</h4>
+                <div class="form-grid-3">
+                    <input type="text" id="admin-new-name" placeholder="Nome do Aluno">
+                    <input type="email" id="admin-new-email" placeholder="Email de Acesso">
+                    <input type="password" id="admin-new-pwd" placeholder="Senha Inicial">
                 </div>
+                <button id="btn-admin-create-user" class="btn-primary" style="margin-top: 10px;"><i class="ph ph-user-plus"></i> Cadastrar Usuário</button>
             </div>
+            
             <h4>Usuários Cadastrados</h4>
             <div class="table-responsive">
                 <table class="data-table">

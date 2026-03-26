@@ -5,9 +5,8 @@ const cors = require('cors');
 const path = require('path');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const compression = require('compression'); // Otimização de performance
+const compression = require('compression'); 
 
-// Importação dos Models
 const User = require('./models/User');
 const StudyData = require('./models/StudyData');
 const StudySession = require('./models/StudySession');
@@ -15,17 +14,11 @@ const StudyTimeLog = require('./models/StudyTimeLog');
 
 const app = express();
 
-// Configurações de Middleware
 app.use(compression());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(cors());
 
-// Variável global para controlar novos registros
-let REGISTRATION_OPEN = true; 
-
-// --- ROTA DE KEEP-ALIVE (CRUCIAL PARA O RENDER) ---
-// Configure o cron-job.org para chamar esta rota a cada 14 minutos
 app.get('/health', (req, res) => {
     res.status(200).send('OK');
 });
@@ -34,7 +27,6 @@ mongoose.connect(process.env.MONGO_URI)
     .then(() => console.log("MongoDB Conectado!"))
     .catch(err => console.error("Erro Mongo:", err));
 
-// --- Middlewares de Auth ---
 const auth = (req, res, next) => {
     const token = req.header('x-auth-token');
     if (!token) return res.status(401).json({ msg: 'Acesso negado' });
@@ -57,37 +49,28 @@ const adminAuth = async (req, res, next) => {
     }
 };
 
-// --- ROTAS DE DADOS (SYNC INTELIGENTE) ---
-
-// 1. Rota de Carregamento Híbrido (GET) com DEDUPLICAÇÃO AUTOMÁTICA
 app.get('/api/data', auth, async (req, res) => {
     try {
-        // Busca dados antigos (Legado)
         const legacyDataDoc = await StudyData.findOne({ userId: req.user.id });
         let finalData = legacyDataDoc ? legacyDataDoc.data : {};
 
         if (!finalData.estudos) finalData.estudos = [];
         if (!finalData.tempoEstudos) finalData.tempoEstudos = [];
 
-        // Busca dados novos (Granulares)
         const newSessions = await StudySession.find({ userId: req.user.id }).lean();
         const newTimes = await StudyTimeLog.find({ userId: req.user.id }).lean();
 
-        // Limpa metadados do mongoose (_id, __v)
         const cleanList = (list) => list.map(item => {
             const { _id, userId, __v, ...rest } = item;
             return rest;
         });
 
-        // --- LÓGICA DE DEDUPLICAÇÃO ---
-        // Se um item existe na coleção nova, ignoramos a versão dele que está no legado
         const newIds = new Set(newSessions.map(s => s.id));
         const newTimeIds = new Set(newTimes.map(t => t.id));
 
         const legacyEstudosFiltered = finalData.estudos.filter(s => !newIds.has(s.id));
         const legacyTimesFiltered = finalData.tempoEstudos.filter(t => !newTimeIds.has(t.id));
 
-        // Mescla final
         finalData.estudos = [...legacyEstudosFiltered, ...cleanList(newSessions)];
         finalData.tempoEstudos = [...legacyTimesFiltered, ...cleanList(newTimes)];
 
@@ -98,13 +81,11 @@ app.get('/api/data', auth, async (req, res) => {
     }
 });
 
-// 2. Rota de Salvamento Incremental (POST)
 app.post('/api/estudos', auth, async (req, res) => {
     try {
         const { estudo, tempo } = req.body;
         
         if (estudo) {
-            // Idempotência: Só salva se não existir este ID
             const exists = await StudySession.findOne({ id: estudo.id, userId: req.user.id });
             if (!exists) {
                 await new StudySession({ ...estudo, userId: req.user.id }).save();
@@ -125,13 +106,10 @@ app.post('/api/estudos', auth, async (req, res) => {
     }
 });
 
-// 3. Rota de Atualização de Revisão (PUT) - NOVO FIX
-// Atualiza status sem salvar o DB inteiro, evitando a duplicidade
 app.put('/api/estudos/revisao', auth, async (req, res) => {
     try {
         const { studyId, revIndex } = req.body;
 
-        // Tenta achar na coleção NOVA
         const session = await StudySession.findOne({ id: studyId, userId: req.user.id });
         if (session) {
             if (session.revisoes && session.revisoes[revIndex]) {
@@ -142,7 +120,6 @@ app.put('/api/estudos/revisao', auth, async (req, res) => {
             }
         }
 
-        // Se não achou, tenta achar na coleção LEGADA
         const legacy = await StudyData.findOne({ userId: req.user.id });
         if (legacy) {
             const sIndex = legacy.data.estudos.findIndex(s => s.id === studyId);
@@ -161,32 +138,11 @@ app.put('/api/estudos/revisao', auth, async (req, res) => {
     }
 });
 
-// 4. Rota Legada (POST /data) - Apenas para configurações (Editais, Ciclos)
 app.post('/api/data', auth, async (req, res) => {
     try {
         await StudyData.findOneAndUpdate({ userId: req.user.id }, { $set: { data: req.body } }, { upsert: true });
         res.json({ msg: "Configurações salvas" });
     } catch (err) { res.status(500).send('Erro ao salvar configurações'); }
-});
-
-// --- ROTAS DE AUTENTICAÇÃO & ADMIN ---
-
-app.post('/api/auth/register', async (req, res) => {
-    if (!REGISTRATION_OPEN) return res.status(403).json({ msg: 'Novos registros bloqueados.' });
-    const { name, email, password } = req.body;
-    try {
-        let user = await User.findOne({ email });
-        if (user) return res.status(400).json({ msg: 'Email já cadastrado' });
-        user = new User({ name, email, password });
-        const salt = await bcrypt.genSalt(10);
-        user.password = await bcrypt.hash(password, salt);
-        await user.save();
-        const payload = { user: { id: user.id } };
-        jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '7d' }, (err, token) => {
-            if (err) throw err;
-            res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role } });
-        });
-    } catch (err) { res.status(500).send('Erro servidor'); }
 });
 
 app.post('/api/auth/login', async (req, res) => {
@@ -229,10 +185,8 @@ app.delete('/api/auth/account', auth, async (req, res) => {
     } catch (err) { res.status(500).send('Erro servidor'); }
 });
 
-// --- ROTA DE FAXINA / LIMPEZA (NOVO) ---
 app.post('/api/admin/cleanup', auth, adminAuth, async (req, res) => {
     try {
-        console.log("Iniciando limpeza...");
         const users = await User.find();
         let totalRemoved = 0;
         let totalLegacyCleaned = 0;
@@ -240,7 +194,6 @@ app.post('/api/admin/cleanup', auth, adminAuth, async (req, res) => {
         for (const user of users) {
             const userId = user._id;
 
-            // 1. LIMPAR DUPLICATAS NA COLEÇÃO NOVA (StudySession)
             const allSessions = await StudySession.find({ userId }).sort({ _id: -1 });
             const seenIds = new Set();
             const idsToDelete = [];
@@ -248,7 +201,7 @@ app.post('/api/admin/cleanup', auth, adminAuth, async (req, res) => {
 
             for (const session of allSessions) {
                 if (seenIds.has(session.id)) {
-                    idsToDelete.push(session._id); // Duplicata
+                    idsToDelete.push(session._id);
                 } else {
                     seenIds.add(session.id);
                     uniqueSessionIds.add(session.id);
@@ -260,7 +213,6 @@ app.post('/api/admin/cleanup', auth, adminAuth, async (req, res) => {
                 totalRemoved += idsToDelete.length;
             }
 
-            // 2. LIMPAR DUPLICATAS NA COLEÇÃO DE TEMPO (StudyTimeLog)
             const allTimes = await StudyTimeLog.find({ userId }).sort({ _id: -1 });
             const seenTimeIds = new Set();
             const timeIdsToDelete = [];
@@ -280,7 +232,6 @@ app.post('/api/admin/cleanup', auth, adminAuth, async (req, res) => {
                 totalRemoved += timeIdsToDelete.length;
             }
 
-            // 3. LIMPAR LEGADO (Remover do JSON o que já está na coleção nova)
             const legacyData = await StudyData.findOne({ userId });
             if (legacyData && legacyData.data) {
                 let changed = false;
@@ -319,7 +270,7 @@ app.post('/api/admin/cleanup', auth, adminAuth, async (req, res) => {
 app.get('/api/admin/users', auth, adminAuth, async (req, res) => {
     try {
         const users = await User.find().select('-password');
-        res.json({ users, registrationOpen: REGISTRATION_OPEN });
+        res.json({ users });
     } catch (err) { res.status(500).send('Erro servidor'); }
 });
 
@@ -333,12 +284,24 @@ app.delete('/api/admin/user/:id', auth, adminAuth, async (req, res) => {
     } catch (err) { res.status(500).send('Erro servidor'); }
 });
 
-app.post('/api/admin/toggle-registration', auth, adminAuth, async (req, res) => {
-    REGISTRATION_OPEN = !REGISTRATION_OPEN;
-    res.json({ msg: `Novos registros ${REGISTRATION_OPEN ? 'LIBERADOS' : 'BLOQUEADOS'}.`, status: REGISTRATION_OPEN });
+// NOVA ROTA: Admin cria usuários
+app.post('/api/admin/create-user', auth, adminAuth, async (req, res) => {
+    const { name, email, password } = req.body;
+    try {
+        let user = await User.findOne({ email });
+        if (user) return res.status(400).json({ msg: 'Email já cadastrado' });
+        
+        user = new User({ name, email, password });
+        const salt = await bcrypt.genSalt(10);
+        user.password = await bcrypt.hash(password, salt);
+        await user.save();
+        
+        res.json({ msg: 'Usuário criado com sucesso!' });
+    } catch (err) { 
+        res.status(500).send('Erro ao criar usuário'); 
+    }
 });
 
-// --- ARQUIVOS ESTÁTICOS ---
 const clientPath = path.join(__dirname, '../frontend');
 app.use(express.static(clientPath));
 app.get('*', (req, res) => {
