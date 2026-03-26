@@ -68,18 +68,48 @@
         
         <section id="page-home" class="page active">
             
-            <div class="card" style="margin-bottom: 1.5rem;">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
-                    <h3>Consistência (30 Dias)</h3>
-                    <p class="streak-phrase" style="margin:0; font-size:0.9rem;">
-                        Sequência: <span id="current-streak-val" class="highlight-number">0</span> | 
-                        Recorde: <span id="record-streak-val" class="highlight-number">0</span>
-                    </p>
+            <div class="card consistency-split" style="margin-bottom: 1.5rem;">
+                <div class="consistency-left">
+                    <h3 style="margin-bottom:1rem;">Consistência (30 Dias)</h3>
+                    <div id="heatmap-container" class="heatmap-30-grid"></div>
+                    <div class="heatmap-legend-simple">
+                        <span class="legend-item"><span class="day-square-legend missed"></span> Não Estudou</span>
+                        <span class="legend-item"><span class="day-square-legend studied"></span> Estudou</span>
+                    </div>
                 </div>
-                <div id="heatmap-container" class="heatmap-30-grid"></div>
-                <div class="heatmap-legend-simple">
-                    <span class="legend-item"><span class="day-square-legend missed"></span> Não Estudou</span>
-                    <span class="legend-item"><span class="day-square-legend studied"></span> Estudou</span>
+                
+                <div class="consistency-right">
+                    <div class="streak-main-info">
+                        <div class="streak-icon-wrapper">
+                            <i class="ph-fill ph-fire"></i>
+                        </div>
+                        <h3 style="margin: 0 0 5px 0;">Ofensiva Atual</h3>
+                        <div class="streak-main-number">
+                            <span id="current-streak-val">0</span>
+                            <small>dias</small>
+                        </div>
+                        <p class="streak-record">
+                            Recorde: <strong id="record-streak-val">0</strong>
+                        </p>
+                    </div>
+                    
+                    <div class="streak-extra-info">
+                        <div class="streak-time-block">
+                            <div class="streak-extra-label">Tempo Total</div>
+                            <div class="streak-extra-value">
+                                <i class="ph ph-clock" style="color:var(--primary-color)"></i> <span id="streak-total-time">0h 0m</span>
+                            </div>
+                        </div>
+                        <div class="streak-chart-block">
+                            <div class="streak-chart-container">
+                                <canvas id="streak-chart"></canvas>
+                                <div class="streak-chart-center" id="streak-chart-perc">0%</div>
+                            </div>
+                            <div class="streak-extra-label" style="margin-top:8px;">
+                                <span id="streak-total-q" style="font-weight:600; color:var(--text-color)">0</span> questões
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
 

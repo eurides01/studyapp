@@ -37,7 +37,7 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     let currentEditalId = localStorage.getItem('lastEditalId') || null;
-    let charts = { acertos: null, tempo: null, cobertura: null };
+    let charts = { acertos: null, tempo: null, cobertura: null, streak: null };
     const audioAlarm = document.getElementById('timer-sound');
     
     let isLegacyRegistration = false;
@@ -478,6 +478,7 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const calculateStreakStats = () => {
+        // O cálculo da ofensiva permanece global (dias seguidos independentemente do edital)
         const rawDates = new Set([ 
             ...db.estudos.filter(e => e.data !== 'SEM_DATA').map(e => e.data), 
             ...db.tempoEstudos.filter(t => t.data !== 'SEM_DATA').map(t => t.data) 
@@ -519,6 +520,50 @@ document.addEventListener('DOMContentLoaded', () => {
         if(elStreakVal) elStreakVal.textContent = currentStreak;
         const elStreakRec = document.getElementById('record-streak-val');
         if(elStreakRec) elStreakRec.textContent = maxStreak;
+
+        // ===== CÁLCULOS DO PAINEL EXTRA (Filtrados por Edital) =====
+        const estudosEdital = filterStudiesByEdital(db.estudos);
+        const temposEdital = filterStudiesByEdital(db.tempoEstudos);
+
+        const totalMins = temposEdital.reduce((acc, t) => acc + (Number(t.tempoMinutos) || 0), 0);
+        const elTotalTime = document.getElementById('streak-total-time');
+        if (elTotalTime) elTotalTime.textContent = formatDuration(totalMins);
+
+        let totalQ = 0, totalA = 0;
+        estudosEdital.forEach(e => { totalQ += (Number(e.total) || 0); totalA += (Number(e.acertos) || 0); });
+        let totalE = totalQ - totalA;
+        let perc = totalQ > 0 ? Math.round((totalA / totalQ) * 100) : 0;
+
+        const elTotalQ = document.getElementById('streak-total-q');
+        if (elTotalQ) elTotalQ.textContent = totalQ;
+
+        const elPerc = document.getElementById('streak-chart-perc');
+        if (elPerc) elPerc.textContent = perc + '%';
+
+        if (charts.streak) charts.streak.destroy();
+        const ctxStreak = document.getElementById('streak-chart');
+        if (ctxStreak) {
+            charts.streak = new Chart(ctxStreak, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Acertos', 'Erros'],
+                    datasets: [{
+                        data: totalQ > 0 ? [totalA, totalE] : [1],
+                        backgroundColor: totalQ > 0 ? ['#10b981', '#ef4444'] : ['#e2e8f0'],
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    cutout: '75%',
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: { enabled: totalQ > 0 }
+                    }
+                }
+            });
+        }
     };
 
     const renderHeatmap = () => {
@@ -696,15 +741,15 @@ document.addEventListener('DOMContentLoaded', () => {
         return db.flashcards.filter(c => c.deckId === deckId);
     };
 
-    const getDueCardsToday = (deckId = null) => {
+    const getDueCardsToday = (deckId = null, editalDecksIds = null) => {
         const today = getTodayDate();
         return db.flashcards.filter(c => {
             if (deckId && c.deckId !== deckId) return false;
-            // Se for review e a data for hoje ou antes
+            if (!deckId && editalDecksIds && !editalDecksIds.includes(c.deckId)) return false;
+
             if (c.status === 'review') {
                 return !c.nextReview || c.nextReview <= today;
             }
-            // Se for new ou learning e for pra hoje ou antes
             return !c.nextReview || c.nextReview <= today;
         });
     };
@@ -713,16 +758,27 @@ document.addEventListener('DOMContentLoaded', () => {
         const list = document.getElementById('decks-list');
         list.innerHTML = '';
         
-        if (db.flashcardDecks.length === 0) {
-            list.innerHTML = '<div class="empty-state" style="grid-column: 1 / -1;">Nenhum deck criado ainda.</div>';
+        const edital = getCurrentEdital();
+        if (!edital) {
+            list.innerHTML = '<div class="empty-state" style="grid-column: 1 / -1;">Selecione ou crie um edital para ver seus flashcards.</div>';
+            document.getElementById('new-card-deck-select').innerHTML = '';
+            document.getElementById('import-card-deck-select').innerHTML = '';
             return;
         }
 
-        db.flashcardDecks.forEach(deck => {
-            const allCards = getCardsForDeck(deck.id);
-            const dueCards = getDueCardsToday(deck.id);
+        const editalDecks = db.flashcardDecks.filter(d => d.editalId === edital.id);
 
-            // Contadores do Anki para a Dashboard
+        if (editalDecks.length === 0) {
+            list.innerHTML = '<div class="empty-state" style="grid-column: 1 / -1;">Nenhum deck criado para este edital ainda.</div>';
+            document.getElementById('new-card-deck-select').innerHTML = '';
+            document.getElementById('import-card-deck-select').innerHTML = '';
+            return;
+        }
+
+        editalDecks.forEach(deck => {
+            const allCards = getCardsForDeck(deck.id);
+            const dueCards = getDueCardsToday(deck.id, null);
+
             const countNew = dueCards.filter(c => c.status === 'new').length;
             const countLearn = dueCards.filter(c => c.status === 'learning').length;
             const countReview = dueCards.filter(c => c.status === 'review').length;
@@ -750,7 +806,7 @@ document.addEventListener('DOMContentLoaded', () => {
             </div>`;
         });
 
-        const opts = db.flashcardDecks.map(d => `<option value="${d.id}">${d.name}</option>`).join('');
+        const opts = editalDecks.map(d => `<option value="${d.id}">${d.name}</option>`).join('');
         document.getElementById('new-card-deck-select').innerHTML = opts;
         document.getElementById('import-card-deck-select').innerHTML = opts;
     };
@@ -773,9 +829,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     document.getElementById('btn-save-deck').addEventListener('click', () => {
         const name = document.getElementById('new-deck-name').value.trim();
+        const edital = getCurrentEdital();
+
+        if(!edital) return alert("Selecione um edital primeiro.");
         if(!name) return alert('Digite o nome do deck');
         
-        db.flashcardDecks.push({ id: Date.now().toString(), name });
+        db.flashcardDecks.push({ id: Date.now().toString(), name, editalId: edital.id });
         saveData();
         modalBackdrop.classList.remove('active');
         document.getElementById('new-deck-modal').classList.remove('active');
@@ -783,7 +842,12 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     document.getElementById('btn-open-new-card').addEventListener('click', () => {
-        if(db.flashcardDecks.length === 0) return alert('Crie um deck primeiro!');
+        const edital = getCurrentEdital();
+        if(!edital) return alert('Selecione um edital primeiro!');
+        
+        const editalDecks = db.flashcardDecks.filter(d => d.editalId === edital.id);
+        if(editalDecks.length === 0) return alert('Crie um deck neste edital primeiro!');
+        
         document.getElementById('new-card-front').value = '';
         document.getElementById('new-card-back').value = '';
         modalBackdrop.classList.add('active');
@@ -795,6 +859,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const front = document.getElementById('new-card-front').value.trim();
         const back = document.getElementById('new-card-back').value.trim();
 
+        if(!deckId) return alert("Selecione um deck válido.");
         if(!front || !back) return alert("Preencha frente e verso.");
 
         db.flashcards.push({
@@ -802,7 +867,7 @@ document.addEventListener('DOMContentLoaded', () => {
             deckId,
             front,
             back,
-            status: 'new', // Novo Anki Mode
+            status: 'new',
             stepIndex: 0,
             interval: 0,
             ease: 2.5,
@@ -818,7 +883,12 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     document.getElementById('btn-open-import-cards').addEventListener('click', () => {
-        if(db.flashcardDecks.length === 0) return alert('Crie um deck primeiro!');
+        const edital = getCurrentEdital();
+        if(!edital) return alert('Selecione um edital primeiro!');
+        
+        const editalDecks = db.flashcardDecks.filter(d => d.editalId === edital.id);
+        if(editalDecks.length === 0) return alert('Crie um deck neste edital primeiro!');
+        
         document.getElementById('import-cards-input').value = '';
         modalBackdrop.classList.add('active');
         document.getElementById('import-cards-modal').classList.add('active');
@@ -828,6 +898,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const deckId = document.getElementById('import-card-deck-select').value;
         const text = document.getElementById('import-cards-input').value.trim();
         
+        if(!deckId) return alert("Selecione um deck válido.");
         if(!text) return alert("Cole os cards no formato Frente;Verso");
 
         const lines = text.split('\n');
@@ -878,11 +949,15 @@ document.addEventListener('DOMContentLoaded', () => {
         const container = document.getElementById('scheduled-cards-container');
         container.innerHTML = '';
 
+        const edital = getCurrentEdital();
+        if (!edital) return;
+
         const today = getTodayDate();
-        const futureCards = db.flashcards.filter(c => c.nextReview && c.nextReview > today);
+        const editalDecksIds = db.flashcardDecks.filter(d => d.editalId === edital.id).map(d => d.id);
+        const futureCards = db.flashcards.filter(c => c.nextReview && c.nextReview > today && editalDecksIds.includes(c.deckId));
 
         if (futureCards.length === 0) {
-            container.innerHTML = '<p class="empty-state">Nenhum card agendado para dias futuros. Você está em dia!</p>';
+            container.innerHTML = '<p class="empty-state">Nenhum card agendado para dias futuros neste edital. Você está em dia!</p>';
             return;
         }
 
@@ -920,12 +995,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // FLUXO DE ESTUDO DE FLASHCARDS
     document.getElementById('btn-study-all-cards').addEventListener('click', () => {
-        startFlashcardsStudy(null);
+        const edital = getCurrentEdital();
+        if (!edital) return alert("Selecione um edital.");
+        
+        const editalDecksIds = db.flashcardDecks.filter(d => d.editalId === edital.id).map(d => d.id);
+        if(editalDecksIds.length === 0) return alert("Nenhum deck neste edital.");
+
+        startFlashcardsStudy(null, editalDecksIds);
     });
 
-    window.startFlashcardsStudy = (deckId) => {
+    window.startFlashcardsStudy = (deckId, fallbackEditalDecksIds = null) => {
         currentStudyDeckId = deckId;
-        currentStudySessionCards = getDueCardsToday(deckId); // Carrega todos devidos hoje
+        
+        const editalDecksIds = fallbackEditalDecksIds || (deckId ? null : db.flashcardDecks.filter(d => d.editalId === getCurrentEdital()?.id).map(d => d.id));
+        currentStudySessionCards = getDueCardsToday(deckId, editalDecksIds);
         
         if (currentStudySessionCards.length === 0) return alert('Nenhum card pendente para estudo agora.');
 
@@ -950,7 +1033,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     document.getElementById('fc-container').addEventListener('click', function(e) {
-        // Bloqueia flip se for a tela de espera
         if (document.getElementById('fc-front-text').classList.contains('fc-waiting')) return;
 
         if(e.target.tagName !== 'BUTTON' && !e.target.classList.contains('fc-btn')) {
@@ -962,7 +1044,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // CONSTANTES DO ANKI
     const STEPS = [1, 10]; // min
     const GRADUATING_IVL = 1; // dia
     const EASY_IVL = 4; // dias
@@ -974,19 +1055,18 @@ document.addEventListener('DOMContentLoaded', () => {
             preview.showHard = true; 
             if (card.stepIndex === 0) {
                 preview.bad = '<1m';
-                preview.hard = '1m'; // Repete o passo
+                preview.hard = '1m'; 
                 preview.good = '10m';
                 preview.easy = '4d';
             } else {
-                preview.bad = '<1m'; // Volta pro início
-                preview.hard = '10m'; // Repete
-                preview.good = '1d'; // Gradua
+                preview.bad = '<1m'; 
+                preview.hard = '10m'; 
+                preview.good = '1d'; 
                 preview.easy = '4d';
             }
         } else {
-            // Review (Graduado)
             preview.showHard = true;
-            preview.bad = '10m'; // Lapse
+            preview.bad = '10m'; 
             
             let hardInt = Math.max(1, Math.round(card.interval * 1.2));
             let goodInt = Math.max(1, Math.round(card.interval * card.ease));
@@ -1003,10 +1083,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const renderNextFlashcard = () => {
         if (waitTimerInterval) clearTimeout(waitTimerInterval);
 
-        // Atualiza a fila com base na nuvem/db atual, caso tenha salvo
-        currentStudySessionCards = getDueCardsToday(currentStudyDeckId);
+        const editalDecksIds = currentStudyDeckId ? null : db.flashcardDecks.filter(d => d.editalId === getCurrentEdital()?.id).map(d => d.id);
+        currentStudySessionCards = getDueCardsToday(currentStudyDeckId, editalDecksIds);
 
-        // 1. Atualizar os 3 contadores coloridos
         const countNew = currentStudySessionCards.filter(c => c.status === 'new').length;
         const countLearn = currentStudySessionCards.filter(c => c.status === 'learning').length;
         const countReview = currentStudySessionCards.filter(c => c.status === 'review').length;
@@ -1022,7 +1101,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (currentStudySessionCards.length === 0) {
             document.getElementById('fc-front-text').textContent = "Parabéns!";
             document.getElementById('fc-front-text').classList.remove('fc-waiting');
-            document.getElementById('fc-back-text').textContent = "Você concluiu os estudos de hoje para este deck.";
+            document.getElementById('fc-back-text').textContent = "Você concluiu os estudos de hoje para este bloco.";
             document.getElementById('fc-actions').style.display = 'none';
             document.querySelector('.fc-hint').style.display = 'none';
             document.getElementById('fc-deck-name').textContent = "Concluído";
@@ -1032,12 +1111,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const now = Date.now();
         
-        // Separa cards prontos e os que estão na "geladeira" do relógio
         const readyCards = currentStudySessionCards.filter(c => !c.nextReviewTime || c.nextReviewTime <= now);
         const waitingCards = currentStudySessionCards.filter(c => c.nextReviewTime && c.nextReviewTime > now);
 
         if (readyCards.length === 0 && waitingCards.length > 0) {
-            // TELA DE ESPERA
             waitingCards.sort((a, b) => a.nextReviewTime - b.nextReviewTime);
             const nextCard = waitingCards[0];
             const waitMs = nextCard.nextReviewTime - now;
@@ -1058,14 +1135,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 </div>
             `;
 
-            // Tenta re-renderizar logo que o tempo do primeiro card acabar
             waitTimerInterval = setTimeout(renderNextFlashcard, waitMs + 500);
             currentFlashcard = null;
             return;
         }
 
-        // Se há cards prontos, precisamos escolher qual mostrar.
-        // Regra do Anki: Learning/Lapses primeiro, depois Reviews, depois News.
         let nextCard = readyCards.find(c => c.status === 'learning');
         if (!nextCard) nextCard = readyCards.find(c => c.status === 'review');
         if (!nextCard) nextCard = readyCards.find(c => c.status === 'new');
@@ -1079,7 +1153,6 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('fc-front-text').innerHTML = currentFlashcard.front;
         document.getElementById('fc-back-text').innerHTML = currentFlashcard.back;
 
-        // Atualiza Labels dos Botões
         const previews = calculateIntervalsPreview(currentFlashcard);
         document.querySelector('.fc-bad small').textContent = previews.bad;
         
@@ -1100,7 +1173,6 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     window.rateFlashcard = (quality) => {
-        // quality: 1 (Errei), 2 (Difícil), 3 (Bom), 4 (Fácil)
         if (!currentFlashcard) return;
 
         let card = db.flashcards.find(c => c.id === currentFlashcard.id);
@@ -1118,47 +1190,46 @@ document.addEventListener('DOMContentLoaded', () => {
             if (card.status === 'new') card.stepIndex = 0;
             card.status = 'learning';
 
-            if (quality === 1) { // Errei (1m)
+            if (quality === 1) { 
                 card.stepIndex = 0;
                 card.nextReviewTime = now + (STEPS[0] * 60000);
             } 
-            else if (quality === 2) { // Difícil (Repete o step atual)
+            else if (quality === 2) { 
                 card.nextReviewTime = now + (STEPS[card.stepIndex] * 60000);
             } 
-            else if (quality === 3) { // Bom (Avança o step ou Gradua)
+            else if (quality === 3) { 
                 card.stepIndex++;
                 if (card.stepIndex < STEPS.length) {
                     card.nextReviewTime = now + (STEPS[card.stepIndex] * 60000);
-                } else { // Graduou!
+                } else { 
                     card.status = 'review';
                     card.interval = GRADUATING_IVL;
                     card.nextReviewTime = null;
                     card.nextReview = addDays(today, card.interval);
                 }
             } 
-            else if (quality === 4) { // Fácil (Pula e Gradua pra 4 dias)
+            else if (quality === 4) { 
                 card.status = 'review';
                 card.interval = EASY_IVL;
                 card.nextReviewTime = null;
                 card.nextReview = addDays(today, card.interval);
             }
         } 
-        else if (card.status === 'review') { // CARD ANTIGO GRADUADO
-            if (quality === 1) { // Errei (Lapse)
+        else if (card.status === 'review') { 
+            if (quality === 1) { 
                 card.status = 'learning';
-                card.stepIndex = 0; // Volta para 10 minutos (step 1 = indice 1 do Anki lapse) - Para simplificar, jogamos no index 1 (10m)
                 card.stepIndex = 1; 
                 card.ease = Math.max(1.3, card.ease - 0.20);
-                card.interval = 1; // Quando formar de novo, volta pra 1 dia mínimo
-                card.nextReviewTime = now + (10 * 60000); // 10 min relógio
+                card.interval = 1; 
+                card.nextReviewTime = now + (10 * 60000); 
             } else {
                 card.reps++;
-                if (quality === 2) { // Difícil
+                if (quality === 2) { 
                     card.ease = Math.max(1.3, card.ease - 0.15);
                     card.interval = Math.max(1, Math.round(card.interval * 1.2));
-                } else if (quality === 3) { // Bom
+                } else if (quality === 3) { 
                     card.interval = Math.max(1, Math.round(card.interval * card.ease));
-                } else if (quality === 4) { // Fácil
+                } else if (quality === 4) { 
                     card.ease += 0.15;
                     card.interval = Math.max(1, Math.round(card.interval * card.ease * 1.3));
                 }

@@ -114,12 +114,111 @@ h3 { margin-bottom: 1rem; font-weight: 500; color: var(--text-color); font-size:
 .sidebar-toggle-mobile { display: none; position: fixed; top: 15px; left: 15px; z-index: 990; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; width: 40px; height: 40px; font-size: 1.2rem; color: var(--text-color); cursor: pointer; }
 
 
-/* ===== HEATMAP 30 DIAS ===== */
+/* ===== CONSISTENCY PANEL (SPLIT LAYOUT) ===== */
+.consistency-split {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2rem;
+    align-items: center;
+}
+.consistency-left {
+    border-right: 1px solid var(--border-color);
+    padding-right: 2rem;
+}
+.consistency-right {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-evenly;
+    text-align: center;
+    width: 100%;
+}
+.streak-main-info {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+.streak-extra-info {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding-left: 1.5rem;
+    border-left: 1px solid var(--border-color);
+    gap: 15px;
+}
+.streak-time-block, .streak-chart-block {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+.streak-extra-label {
+    font-size: 0.8rem;
+    color: var(--text-light);
+}
+.streak-extra-value {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--text-color);
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+.streak-chart-container {
+    position: relative;
+    width: 70px;
+    height: 70px;
+}
+.streak-chart-center {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--text-color);
+}
+.streak-icon-wrapper {
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    background: rgba(249, 115, 22, 0.1);
+    color: var(--timer-long);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 2.2rem;
+    margin-bottom: 10px;
+}
+.streak-main-number {
+    font-size: 3rem;
+    font-weight: 700;
+    color: var(--text-color);
+    line-height: 1;
+    display: flex;
+    align-items: baseline;
+    gap: 5px;
+}
+.streak-main-number small {
+    font-size: 1rem;
+    font-weight: 500;
+    color: var(--text-light);
+}
+.streak-record {
+    margin-top: 10px;
+    font-size: 0.95rem;
+    color: var(--text-light);
+}
+.streak-record strong {
+    color: var(--text-color);
+    font-weight: 600;
+}
+
+/* Heatmap size adjusments for split column */
 .heatmap-30-grid { 
     display: grid; 
-    grid-template-columns: repeat(15, 32px);
+    grid-template-columns: repeat(15, minmax(15px, 24px));
     justify-content: center; 
-    gap: 8px; 
+    gap: 6px; 
     margin-bottom: 1.5rem; 
 }
 .heatmap-square { 
@@ -140,8 +239,6 @@ h3 { margin-bottom: 1rem; font-weight: 500; color: var(--text-color); font-size:
 .day-square-legend { width: 12px; height: 12px; border-radius: 2px; display: inline-block; }
 .day-square-legend.missed { border: 1px solid var(--border-color); }
 .day-square-legend.studied { background-color: var(--success-color); opacity: 0.8;}
-.streak-phrase { text-align: center; font-size: 0.95rem; color: var(--text-light); margin-top: 10px; }
-.highlight-number { font-weight: 600; color: var(--text-color); font-size: 1.1rem; padding: 0 4px; }
 
 
 /* ===== SUMMARY CARDS (FLAT) ===== */
@@ -297,7 +394,13 @@ button:hover { opacity: 0.85; }
     
     .sidebar-toggle-mobile { display: flex; align-items: center; justify-content: center; }
 
-    .heatmap-30-grid { grid-template-columns: repeat(10, 28px); gap: 6px; }
+    /* Ajuste da estrutura Split do painel de consistência para telas menores */
+    .consistency-split { grid-template-columns: 1fr; gap: 1.5rem; }
+    .consistency-left { border-right: none; padding-right: 0; border-bottom: 1px solid var(--border-color); padding-bottom: 1.5rem; }
+    .consistency-right { flex-direction: column; gap: 1.5rem; }
+    .streak-extra-info { border-left: none; border-top: 1px solid var(--border-color); padding-left: 0; padding-top: 1.5rem; width: 100%; flex-direction: row; justify-content: space-around; gap: 0;}
+
+    .heatmap-30-grid { grid-template-columns: repeat(10, minmax(20px, 28px)); gap: 6px; }
 
     .dashboard-grid, .form-grid-3, .stats-grid { grid-template-columns: 1fr; }
     #timer-display { font-size: 3.5rem; }
@@ -314,7 +417,8 @@ button:hover { opacity: 0.85; }
 @media (max-width: 400px) {
     .nav-brand { display: none; }
     .nav-select { max-width: 110px; }
-    .heatmap-30-grid { grid-template-columns: repeat(10, 24px); gap: 4px; }
+    
+    .heatmap-30-grid { grid-template-columns: repeat(10, minmax(18px, 24px)); gap: 4px; }
     .fc-actions { gap: 5px; }
     .fc-btn { padding: 8px 5px; font-size: 0.8rem; }
 }
