@@ -1,11 +1,20 @@
 document.addEventListener('DOMContentLoaded', () => {
 
+    // CSS Injetado (Inclui os contadores padrão Anki e a tela de espera)
     const styleSheet = document.createElement("style");
     styleSheet.innerText = `
         .btn-edit { color: var(--text-light); transition: all 0.2s; }
         .btn-edit:hover { color: var(--primary-color); background-color: rgba(37, 99, 235, 0.1); transform: scale(1.1); }
         .icon-action-btn { width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border-radius: 6px; border: none; background: transparent; cursor: pointer; font-size: 1.1rem; }
         .icon-action-btn:hover { background-color: rgba(0,0,0,0.05); }
+        
+        .anki-counts { display: flex; gap: 12px; font-weight: 700; font-size: 1rem; border-bottom: 2px solid var(--border-color); padding-bottom: 4px;}
+        .anki-new { color: #3b82f6; }   /* Azul - Novos */
+        .anki-learn { color: #ef4444; } /* Vermelho - Aprendizado/Lapsos */
+        .anki-review { color: #10b981; }/* Verde - Revisões */
+        
+        .fc-wait-screen { text-align: center; padding: 40px 20px; color: var(--text-color); display:flex; flex-direction:column; align-items:center; gap:15px; }
+        .fc-wait-time { font-size: 2.5rem; font-weight: bold; color: var(--primary-color); font-variant-numeric: tabular-nums;}
     `;
     document.head.appendChild(styleSheet);
 
@@ -38,10 +47,11 @@ document.addEventListener('DOMContentLoaded', () => {
         seconds: 1500, accumulated: 0, settings: { focus: 25, short: 5, long: 15 }
     };
 
-    // Variáveis Estudo Flashcards
-    let flashcardStudyQueue = [];
+    // Variáveis Estudo Flashcards (Motor Anki)
+    let currentStudySessionCards = [];
     let currentFlashcard = null;
     let currentStudyDeckId = null;
+    let waitTimerInterval = null;
 
     // SELETORES
     const authScreen = document.getElementById('auth-screen');
@@ -149,6 +159,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (!db.flashcardDecks) db.flashcardDecks = [];
                 if (!db.flashcards) db.flashcards = [];
                 
+                // Normalização de cards legados para o motor Anki
+                db.flashcards.forEach(c => {
+                    if (!c.status || c.status === 'graduated') {
+                        c.status = (c.reps && c.reps > 0) ? 'review' : 'new';
+                    }
+                });
+
                 if (db.editais.length > 0) {
                     if (!currentEditalId || !db.editais.find(e => e.id === currentEditalId)) {
                         currentEditalId = db.editais[0].id;
@@ -671,17 +688,23 @@ document.addEventListener('DOMContentLoaded', () => {
         list.innerHTML = html || '<p class="empty-state">Tudo em dia!</p>';
     };
 
-    // ===== LÓGICA DE FLASHCARDS (ATUALIZADA COM FASES DE APRENDIZADO) =====
+    // ==========================================
+    // MOTOR DE FLASHCARDS (ANKI MODE)
+    // ==========================================
 
     const getCardsForDeck = (deckId) => {
         return db.flashcards.filter(c => c.deckId === deckId);
     };
 
-    const getDueCards = (deckId = null) => {
+    const getDueCardsToday = (deckId = null) => {
         const today = getTodayDate();
         return db.flashcards.filter(c => {
             if (deckId && c.deckId !== deckId) return false;
-            // Retorna se a data de revisão for hoje ou antes (independente dos minutos)
+            // Se for review e a data for hoje ou antes
+            if (c.status === 'review') {
+                return !c.nextReview || c.nextReview <= today;
+            }
+            // Se for new ou learning e for pra hoje ou antes
             return !c.nextReview || c.nextReview <= today;
         });
     };
@@ -697,13 +720,26 @@ document.addEventListener('DOMContentLoaded', () => {
 
         db.flashcardDecks.forEach(deck => {
             const allCards = getCardsForDeck(deck.id);
-            const dueCards = getDueCards(deck.id);
+            const dueCards = getDueCardsToday(deck.id);
+
+            // Contadores do Anki para a Dashboard
+            const countNew = dueCards.filter(c => c.status === 'new').length;
+            const countLearn = dueCards.filter(c => c.status === 'learning').length;
+            const countReview = dueCards.filter(c => c.status === 'review').length;
+
+            const countsHtml = dueCards.length > 0 
+                ? `<div class="anki-counts" style="border:none; padding:0; justify-content:flex-start; margin-top:5px;">
+                     <span class="anki-new" title="Novos">${countNew}</span>
+                     <span class="anki-learn" title="Aprendizagem">${countLearn}</span>
+                     <span class="anki-review" title="Revisão">${countReview}</span>
+                   </div>` 
+                : `<small style="color:var(--text-light)">Tudo em dia!</small>`;
 
             list.innerHTML += `
             <div class="card deck-item" style="margin-bottom:0; flex-direction: row;">
                 <div class="deck-info">
                     <strong>${deck.name}</strong>
-                    <small>${dueCards.length} a revisar / ${allCards.length} no total</small>
+                    ${countsHtml}
                 </div>
                 <div style="display:flex; gap:10px;">
                     <button class="btn-primary" onclick="startFlashcardsStudy('${deck.id}')" ${dueCards.length === 0 ? 'disabled style="opacity:0.5; cursor:not-allowed;"' : ''}>
@@ -728,6 +764,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
+    // ABRIR E SALVAR MODAIS...
     document.getElementById('btn-open-new-deck').addEventListener('click', () => {
         document.getElementById('new-deck-name').value = '';
         modalBackdrop.classList.add('active');
@@ -765,12 +802,13 @@ document.addEventListener('DOMContentLoaded', () => {
             deckId,
             front,
             back,
-            status: 'learning',
+            status: 'new', // Novo Anki Mode
             stepIndex: 0,
             interval: 0,
             ease: 2.5,
             reps: 0,
-            nextReview: getTodayDate()
+            nextReview: getTodayDate(),
+            nextReviewTime: null
         });
 
         saveData();
@@ -806,12 +844,13 @@ document.addEventListener('DOMContentLoaded', () => {
                         deckId,
                         front,
                         back,
-                        status: 'learning',
+                        status: 'new',
                         stepIndex: 0,
                         interval: 0,
                         ease: 2.5,
                         reps: 0,
-                        nextReview: getTodayDate()
+                        nextReview: getTodayDate(),
+                        nextReviewTime: null
                     });
                     count++;
                 }
@@ -878,6 +917,7 @@ document.addEventListener('DOMContentLoaded', () => {
         container.innerHTML = html;
     };
 
+
     // FLUXO DE ESTUDO DE FLASHCARDS
     document.getElementById('btn-study-all-cards').addEventListener('click', () => {
         startFlashcardsStudy(null);
@@ -885,9 +925,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     window.startFlashcardsStudy = (deckId) => {
         currentStudyDeckId = deckId;
-        flashcardStudyQueue = getDueCards(deckId);
+        currentStudySessionCards = getDueCardsToday(deckId); // Carrega todos devidos hoje
         
-        if (flashcardStudyQueue.length === 0) return alert('Nenhum card pendente para estudo agora.');
+        if (currentStudySessionCards.length === 0) return alert('Nenhum card pendente para estudo agora.');
 
         document.getElementById('flashcards-dashboard').style.display = 'none';
         document.getElementById('flashcards-study-area').style.display = 'block';
@@ -903,12 +943,16 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     document.getElementById('btn-exit-study').addEventListener('click', () => {
+        if (waitTimerInterval) clearTimeout(waitTimerInterval);
         document.getElementById('flashcards-study-area').style.display = 'none';
         document.getElementById('flashcards-dashboard').style.display = 'block';
         renderFlashcardsDashboard();
     });
 
     document.getElementById('fc-container').addEventListener('click', function(e) {
+        // Bloqueia flip se for a tela de espera
+        if (document.getElementById('fc-front-text').classList.contains('fc-waiting')) return;
+
         if(e.target.tagName !== 'BUTTON' && !e.target.classList.contains('fc-btn')) {
             this.classList.toggle('flipped');
             if(this.classList.contains('flipped')) {
@@ -918,71 +962,124 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    // CONSTANTES DO ANKI
+    const STEPS = [1, 10]; // min
+    const GRADUATING_IVL = 1; // dia
+    const EASY_IVL = 4; // dias
+
     const calculateIntervalsPreview = (card) => {
         const preview = { bad: '', hard: '', good: '', easy: '', showHard: true };
         
-        // Garante as propriedades base
-        if (!card.status) card.status = 'learning';
-        if (typeof card.stepIndex !== 'number') card.stepIndex = 0;
-
-        if (card.status === 'learning') {
-            preview.showHard = false; // Anki geralmente oculta o Hard em novos
+        if (card.status === 'new' || card.status === 'learning') {
+            preview.showHard = true; 
             if (card.stepIndex === 0) {
-                preview.bad = '1 m';
-                preview.good = '10 m';
-                preview.easy = '4 d';
+                preview.bad = '<1m';
+                preview.hard = '1m'; // Repete o passo
+                preview.good = '10m';
+                preview.easy = '4d';
             } else {
-                preview.bad = '1 m';
-                preview.good = '1 d';
-                preview.easy = '4 d';
+                preview.bad = '<1m'; // Volta pro início
+                preview.hard = '10m'; // Repete
+                preview.good = '1d'; // Gradua
+                preview.easy = '4d';
             }
         } else {
-            // Card Graduado (já passou da fase de aprendizado)
+            // Review (Graduado)
             preview.showHard = true;
-            preview.bad = '10 m'; // Lapsos voltam para 10 min
+            preview.bad = '10m'; // Lapse
             
             let hardInt = Math.max(1, Math.round(card.interval * 1.2));
             let goodInt = Math.max(1, Math.round(card.interval * card.ease));
             let easyInt = Math.max(1, Math.round(card.interval * card.ease * 1.3));
             
-            preview.hard = hardInt + ' d';
-            preview.good = goodInt + ' d';
-            preview.easy = easyInt + ' d';
+            preview.hard = hardInt + 'd';
+            preview.good = goodInt + 'd';
+            preview.easy = easyInt + 'd';
         }
         
         return preview;
     };
 
     const renderNextFlashcard = () => {
-        if (flashcardStudyQueue.length === 0) {
+        if (waitTimerInterval) clearTimeout(waitTimerInterval);
+
+        // Atualiza a fila com base na nuvem/db atual, caso tenha salvo
+        currentStudySessionCards = getDueCardsToday(currentStudyDeckId);
+
+        // 1. Atualizar os 3 contadores coloridos
+        const countNew = currentStudySessionCards.filter(c => c.status === 'new').length;
+        const countLearn = currentStudySessionCards.filter(c => c.status === 'learning').length;
+        const countReview = currentStudySessionCards.filter(c => c.status === 'review').length;
+
+        document.getElementById('study-cards-left').innerHTML = `
+            <div class="anki-counts">
+                <span class="anki-new" title="Novos (New)">${countNew}</span>
+                <span class="anki-learn" title="Aprendizado (Learning)">${countLearn}</span>
+                <span class="anki-review" title="A Revisar (Review)">${countReview}</span>
+            </div>
+        `;
+
+        if (currentStudySessionCards.length === 0) {
             document.getElementById('fc-front-text').textContent = "Parabéns!";
-            document.getElementById('fc-back-text').textContent = "Você terminou a revisão deste bloco.";
+            document.getElementById('fc-front-text').classList.remove('fc-waiting');
+            document.getElementById('fc-back-text').textContent = "Você concluiu os estudos de hoje para este deck.";
             document.getElementById('fc-actions').style.display = 'none';
             document.querySelector('.fc-hint').style.display = 'none';
-            document.getElementById('study-cards-left').textContent = "0 restantes";
             document.getElementById('fc-deck-name').textContent = "Concluído";
             currentFlashcard = null;
             return;
         }
 
-        // Ordena a fila para que os cards que precisam de "1 min" ou "10 min" voltem antes 
-        // (Nulls aparecem primeiro como novos)
-        flashcardStudyQueue.sort((a, b) => {
-            const timeA = a.nextReviewTime || 0;
-            const timeB = b.nextReviewTime || 0;
-            return timeA - timeB;
-        });
+        const now = Date.now();
+        
+        // Separa cards prontos e os que estão na "geladeira" do relógio
+        const readyCards = currentStudySessionCards.filter(c => !c.nextReviewTime || c.nextReviewTime <= now);
+        const waitingCards = currentStudySessionCards.filter(c => c.nextReviewTime && c.nextReviewTime > now);
 
-        currentFlashcard = flashcardStudyQueue[0];
-        document.getElementById('study-cards-left').textContent = `${flashcardStudyQueue.length} restantes`;
+        if (readyCards.length === 0 && waitingCards.length > 0) {
+            // TELA DE ESPERA
+            waitingCards.sort((a, b) => a.nextReviewTime - b.nextReviewTime);
+            const nextCard = waitingCards[0];
+            const waitMs = nextCard.nextReviewTime - now;
+            const waitMins = Math.ceil(waitMs / 60000);
+
+            document.getElementById('fc-container').classList.remove('flipped');
+            document.getElementById('fc-actions').style.display = 'none';
+            document.querySelector('.fc-hint').style.display = 'none';
+            document.getElementById('fc-deck-name').textContent = "Aguarde";
+            
+            document.getElementById('fc-front-text').classList.add('fc-waiting');
+            document.getElementById('fc-front-text').innerHTML = `
+                <div class="fc-wait-screen">
+                    <i class="ph ph-hourglass-high" style="font-size:3rem; color:var(--primary-color);"></i>
+                    <span>Próximo card em:</span>
+                    <div class="fc-wait-time">${waitMins} min</div>
+                    <small style="color:var(--text-light)">Aguardando o intervalo de fixação.</small>
+                </div>
+            `;
+
+            // Tenta re-renderizar logo que o tempo do primeiro card acabar
+            waitTimerInterval = setTimeout(renderNextFlashcard, waitMs + 500);
+            currentFlashcard = null;
+            return;
+        }
+
+        // Se há cards prontos, precisamos escolher qual mostrar.
+        // Regra do Anki: Learning/Lapses primeiro, depois Reviews, depois News.
+        let nextCard = readyCards.find(c => c.status === 'learning');
+        if (!nextCard) nextCard = readyCards.find(c => c.status === 'review');
+        if (!nextCard) nextCard = readyCards.find(c => c.status === 'new');
+
+        currentFlashcard = nextCard;
         
         const deckObj = db.flashcardDecks.find(d => d.id === currentFlashcard.deckId);
         document.getElementById('fc-deck-name').textContent = deckObj ? deckObj.name : "Card";
 
-        document.getElementById('fc-front-text').textContent = currentFlashcard.front;
-        document.getElementById('fc-back-text').textContent = currentFlashcard.back;
+        document.getElementById('fc-front-text').classList.remove('fc-waiting');
+        document.getElementById('fc-front-text').innerHTML = currentFlashcard.front;
+        document.getElementById('fc-back-text').innerHTML = currentFlashcard.back;
 
-        // Atualiza botões
+        // Atualiza Labels dos Botões
         const previews = calculateIntervalsPreview(currentFlashcard);
         document.querySelector('.fc-bad small').textContent = previews.bad;
         
@@ -1003,90 +1100,73 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     window.rateFlashcard = (quality) => {
+        // quality: 1 (Errei), 2 (Difícil), 3 (Bom), 4 (Fácil)
         if (!currentFlashcard) return;
 
         let card = db.flashcards.find(c => c.id === currentFlashcard.id);
         if(!card) return;
 
-        // Proteção de dados legados
-        if (!card.status) card.status = 'learning';
-        if (typeof card.stepIndex !== 'number') card.stepIndex = 0;
-        if (typeof card.reps !== 'number') card.reps = 0;
-        if (typeof card.interval !== 'number') card.interval = 0;
-        if (typeof card.ease !== 'number') card.ease = 2.5;
-
-        const today = getTodayDate();
         const now = Date.now();
+        const today = getTodayDate();
 
-        if (card.status === 'learning') {
-            if (quality === 1) { // Errei
+        if (!card.status) card.status = 'new';
+        if (typeof card.stepIndex !== 'number') card.stepIndex = 0;
+        if (typeof card.ease !== 'number') card.ease = 2.5;
+        if (typeof card.interval !== 'number') card.interval = 0;
+
+        if (card.status === 'new' || card.status === 'learning') {
+            if (card.status === 'new') card.stepIndex = 0;
+            card.status = 'learning';
+
+            if (quality === 1) { // Errei (1m)
                 card.stepIndex = 0;
-                card.nextReviewTime = now + 1 * 60000; // +1 minuto
-                card.nextReview = today; // Mantém no dia atual
-                // Empurra pro fim da fila para revisar hoje ainda
-                flashcardStudyQueue.push(flashcardStudyQueue.shift()); 
-                saveData();
-                renderNextFlashcard();
-                return;
+                card.nextReviewTime = now + (STEPS[0] * 60000);
             } 
-            else if (quality === 3) { // Bom
-                if (card.stepIndex === 0) {
-                    card.stepIndex = 1;
-                    card.nextReviewTime = now + 10 * 60000; // +10 min
-                    card.nextReview = today;
-                    // Empurra pro fim da fila
-                    flashcardStudyQueue.push(flashcardStudyQueue.shift()); 
-                    saveData();
-                    renderNextFlashcard();
-                    return;
-                } else {
-                    // Gradua o card!
-                    card.status = 'graduated';
-                    card.interval = 1;
-                    card.reps = 1;
-                    card.nextReview = addDays(today, 1);
+            else if (quality === 2) { // Difícil (Repete o step atual)
+                card.nextReviewTime = now + (STEPS[card.stepIndex] * 60000);
+            } 
+            else if (quality === 3) { // Bom (Avança o step ou Gradua)
+                card.stepIndex++;
+                if (card.stepIndex < STEPS.length) {
+                    card.nextReviewTime = now + (STEPS[card.stepIndex] * 60000);
+                } else { // Graduou!
+                    card.status = 'review';
+                    card.interval = GRADUATING_IVL;
                     card.nextReviewTime = null;
+                    card.nextReview = addDays(today, card.interval);
                 }
             } 
-            else if (quality === 4) { // Fácil
-                card.status = 'graduated';
-                card.interval = 4;
-                card.reps = 1;
-                card.nextReview = addDays(today, 4);
+            else if (quality === 4) { // Fácil (Pula e Gradua pra 4 dias)
+                card.status = 'review';
+                card.interval = EASY_IVL;
                 card.nextReviewTime = null;
+                card.nextReview = addDays(today, card.interval);
             }
         } 
-        else { // STATUS: GRADUATED
-            if (quality === 1) { // Errei (Lapse / Esquecimento)
+        else if (card.status === 'review') { // CARD ANTIGO GRADUADO
+            if (quality === 1) { // Errei (Lapse)
                 card.status = 'learning';
-                card.stepIndex = 0;
+                card.stepIndex = 0; // Volta para 10 minutos (step 1 = indice 1 do Anki lapse) - Para simplificar, jogamos no index 1 (10m)
+                card.stepIndex = 1; 
                 card.ease = Math.max(1.3, card.ease - 0.20);
-                card.interval = 0;
-                card.nextReviewTime = now + 10 * 60000; // Volta pra fila de hoje (10m)
-                card.nextReview = today;
-                
-                flashcardStudyQueue.push(flashcardStudyQueue.shift()); 
-                saveData();
-                renderNextFlashcard();
-                return;
+                card.interval = 1; // Quando formar de novo, volta pra 1 dia mínimo
+                card.nextReviewTime = now + (10 * 60000); // 10 min relógio
             } else {
                 card.reps++;
                 if (quality === 2) { // Difícil
-                    card.interval = Math.max(1, Math.round(card.interval * 1.2));
                     card.ease = Math.max(1.3, card.ease - 0.15);
+                    card.interval = Math.max(1, Math.round(card.interval * 1.2));
                 } else if (quality === 3) { // Bom
                     card.interval = Math.max(1, Math.round(card.interval * card.ease));
                 } else if (quality === 4) { // Fácil
                     card.ease += 0.15;
                     card.interval = Math.max(1, Math.round(card.interval * card.ease * 1.3));
                 }
-                card.nextReview = addDays(today, card.interval);
                 card.nextReviewTime = null;
+                card.nextReview = addDays(today, card.interval);
             }
         }
 
-        // Se o código chegou aqui, o card finalizou o estudo de HOJE (sai da fila)
-        flashcardStudyQueue.shift();
         saveData();
         renderNextFlashcard();
     };
