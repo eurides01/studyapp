@@ -432,6 +432,36 @@
             </div>
     </div>
 
+    <div id="manage-cards-modal" class="modal">
+        <div class="modal-header">
+            <h3>Gerir: <span id="manage-deck-title" style="color:var(--primary-color)"></span></h3>
+            <button class="modal-close-btn"><i class="ph ph-x"></i></button>
+        </div>
+        <div class="modal-body" id="manage-cards-list" style="max-height: 60vh; overflow-y: auto; padding-right:10px;">
+            </div>
+    </div>
+
+    <div id="edit-card-modal" class="modal" style="z-index: 2002;">
+        <div class="modal-header">
+            <h3>Editar Card</h3>
+            <button class="icon-btn" id="btn-close-edit-modal" style="border:none;"><i class="ph ph-arrow-left"></i></button>
+        </div>
+        <div class="modal-body">
+            <input type="hidden" id="edit-card-id">
+            <div class="form-group">
+                <label>Frente (Pergunta)</label>
+                <textarea id="edit-card-front" rows="3"></textarea>
+            </div>
+            <div class="form-group">
+                <label>Verso (Resposta)</label>
+                <textarea id="edit-card-back" rows="4"></textarea>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button id="btn-save-edit-card" class="btn-success full-width">Salvar Alterações</button>
+        </div>
+    </div>
+
     <div id="new-edital-modal" class="modal">
         <div class="modal-header">
             <h3>Criar Novo Edital</h3>

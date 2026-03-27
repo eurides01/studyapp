@@ -1,6 +1,5 @@
 document.addEventListener('DOMContentLoaded', () => {
 
-    // CSS Injetado (Inclui os contadores padrão Anki e a tela de espera)
     const styleSheet = document.createElement("style");
     styleSheet.innerText = `
         .btn-edit { color: var(--text-light); transition: all 0.2s; }
@@ -9,9 +8,9 @@ document.addEventListener('DOMContentLoaded', () => {
         .icon-action-btn:hover { background-color: rgba(0,0,0,0.05); }
         
         .anki-counts { display: flex; gap: 12px; font-weight: 700; font-size: 1rem; border-bottom: 2px solid var(--border-color); padding-bottom: 4px;}
-        .anki-new { color: #3b82f6; }   /* Azul - Novos */
-        .anki-learn { color: #ef4444; } /* Vermelho - Aprendizado/Lapsos */
-        .anki-review { color: #10b981; }/* Verde - Revisões */
+        .anki-new { color: #3b82f6; }   
+        .anki-learn { color: #ef4444; } 
+        .anki-review { color: #10b981; }
         
         .fc-wait-screen { text-align: center; padding: 40px 20px; color: var(--text-color); display:flex; flex-direction:column; align-items:center; gap:15px; }
         .fc-wait-time { font-size: 2.5rem; font-weight: bold; color: var(--primary-color); font-variant-numeric: tabular-nums;}
@@ -47,13 +46,17 @@ document.addEventListener('DOMContentLoaded', () => {
         seconds: 1500, accumulated: 0, settings: { focus: 25, short: 5, long: 15 }
     };
 
-    // Variáveis Estudo Flashcards (Motor Anki)
     let currentStudySessionCards = [];
     let currentFlashcard = null;
     let currentStudyDeckId = null;
     let waitTimerInterval = null;
+    
+    let fcSessionStartTime = null;
+    let fcSessionReviewed = 0;
+    let fcSessionCorrect = 0;
+    
+    let currentManageDeckId = null;
 
-    // SELETORES
     const authScreen = document.getElementById('auth-screen');
     const sidebar = document.getElementById('sidebar');
     const mainContainer = document.querySelector('.container');
@@ -159,12 +162,19 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (!db.flashcardDecks) db.flashcardDecks = [];
                 if (!db.flashcards) db.flashcards = [];
                 
-                // Normalização de cards legados para o motor Anki
+                let needSave = false;
+                if (db.editais.length > 0) {
+                    db.flashcardDecks.forEach(d => {
+                        if (!d.editalId) { d.editalId = db.editais[0].id; needSave = true; }
+                    });
+                }
                 db.flashcards.forEach(c => {
                     if (!c.status || c.status === 'graduated') {
                         c.status = (c.reps && c.reps > 0) ? 'review' : 'new';
+                        needSave = true;
                     }
                 });
+                if(needSave) saveData();
 
                 if (db.editais.length > 0) {
                     if (!currentEditalId || !db.editais.find(e => e.id === currentEditalId)) {
@@ -326,7 +336,68 @@ document.addEventListener('DOMContentLoaded', () => {
     if(editalSelector) editalSelector.addEventListener('change', (e) => handleEditalChange(e.target.value));
     if(navEditalSelector) navEditalSelector.addEventListener('change', (e) => handleEditalChange(e.target.value));
 
-    // EVENTOS SIDEBAR E MENUS
+    const btnNewEdital = document.getElementById('btn-new-edital');
+    if(btnNewEdital) {
+        btnNewEdital.addEventListener('click', () => {
+            document.getElementById('new-edital-name').value = '';
+            const chk = document.getElementById('new-edital-is-trilha');
+            if(chk) chk.checked = false; 
+            
+            modalBackdrop.classList.add('active');
+            document.getElementById('new-edital-modal').classList.add('active');
+        });
+    }
+
+    const btnSaveEdital = document.getElementById('btn-save-edital');
+    if(btnSaveEdital) {
+        btnSaveEdital.addEventListener('click', () => {
+            const nome = document.getElementById('new-edital-name').value.trim();
+            const chk = document.getElementById('new-edital-is-trilha');
+            const isTrilha = chk ? chk.checked : false; 
+            
+            if(!nome) return alert("Digite o nome.");
+            
+            const newEdital = {
+                id: Date.now().toString(),
+                nome: nome,
+                isTrilha: isTrilha, 
+                disciplinas: [],
+                ciclo: { deck: [], disciplinasPorDia: 3, metaHoras: 4 }
+            };
+            
+            db.editais.push(newEdital);
+            currentEditalId = newEdital.id;
+            localStorage.setItem('lastEditalId', currentEditalId);
+            
+            saveData();
+            updateEditalUI();
+            
+            modalBackdrop.classList.remove('active');
+            document.getElementById('new-edital-modal').classList.remove('active');
+            showPage('page-estudos');
+        });
+    }
+
+    const btnDelEdital = document.getElementById('btn-delete-edital');
+    if(btnDelEdital) {
+        btnDelEdital.addEventListener('click', () => {
+            const edital = getCurrentEdital();
+            if(!edital) return;
+            
+            if(confirm(`Tem certeza que deseja apagar o edital "${edital.nome}" e todas as suas disciplinas?`)) {
+                db.editais = db.editais.filter(e => e.id !== currentEditalId);
+                currentEditalId = db.editais.length > 0 ? db.editais[0].id : null;
+                
+                if(currentEditalId) localStorage.setItem('lastEditalId', currentEditalId);
+                else localStorage.removeItem('lastEditalId');
+                
+                saveData();
+                updateEditalUI();
+                showPage('page-estudos');
+            }
+        });
+    }
+
     const showPage = (pageId) => {
         pages.forEach(p => p.classList.remove('active'));
         navLinks.forEach(l => {
@@ -460,7 +531,8 @@ document.addEventListener('DOMContentLoaded', () => {
         estudosEdital.filter(e => {
             if(e.data === 'SEM_DATA') return false;
             const eData = e.data.includes('T') ? e.data.split('T')[0] : e.data;
-            return eData === today;
+            // Ignora Flashcards na soma de questões dos cards do dashboard
+            return eData === today && e.disciplina !== 'Flashcards';
         }).forEach(e => { q += e.total; a += e.acertos; });
         
         const elAcertos = document.getElementById('dash-acertos');
@@ -478,7 +550,6 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const calculateStreakStats = () => {
-        // O cálculo da ofensiva permanece global (dias seguidos independentemente do edital)
         const rawDates = new Set([ 
             ...db.estudos.filter(e => e.data !== 'SEM_DATA').map(e => e.data), 
             ...db.tempoEstudos.filter(t => t.data !== 'SEM_DATA').map(t => t.data) 
@@ -521,7 +592,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const elStreakRec = document.getElementById('record-streak-val');
         if(elStreakRec) elStreakRec.textContent = maxStreak;
 
-        // ===== CÁLCULOS DO PAINEL EXTRA (Filtrados por Edital) =====
         const estudosEdital = filterStudiesByEdital(db.estudos);
         const temposEdital = filterStudiesByEdital(db.tempoEstudos);
 
@@ -530,7 +600,14 @@ document.addEventListener('DOMContentLoaded', () => {
         if (elTotalTime) elTotalTime.textContent = formatDuration(totalMins);
 
         let totalQ = 0, totalA = 0;
-        estudosEdital.forEach(e => { totalQ += (Number(e.total) || 0); totalA += (Number(e.acertos) || 0); });
+        estudosEdital.forEach(e => { 
+            // Ignora Flashcards para não sujar o gráfico de questões
+            if (e.disciplina !== 'Flashcards') {
+                totalQ += (Number(e.total) || 0); 
+                totalA += (Number(e.acertos) || 0); 
+            }
+        });
+        
         let totalE = totalQ - totalA;
         let perc = totalQ > 0 ? Math.round((totalA / totalQ) * 100) : 0;
 
@@ -733,10 +810,6 @@ document.addEventListener('DOMContentLoaded', () => {
         list.innerHTML = html || '<p class="empty-state">Tudo em dia!</p>';
     };
 
-    // ==========================================
-    // MOTOR DE FLASHCARDS (ANKI MODE)
-    // ==========================================
-
     const getCardsForDeck = (deckId) => {
         return db.flashcards.filter(c => c.deckId === deckId);
     };
@@ -792,16 +865,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 : `<small style="color:var(--text-light)">Tudo em dia!</small>`;
 
             list.innerHTML += `
-            <div class="card deck-item" style="margin-bottom:0; flex-direction: row;">
-                <div class="deck-info">
+            <div class="card deck-item" style="margin-bottom:0; flex-direction: row; flex-wrap:wrap; gap:15px;">
+                <div class="deck-info" style="flex:1; min-width:200px;">
                     <strong>${deck.name}</strong>
                     ${countsHtml}
                 </div>
-                <div style="display:flex; gap:10px;">
-                    <button class="btn-primary" onclick="startFlashcardsStudy('${deck.id}')" ${dueCards.length === 0 ? 'disabled style="opacity:0.5; cursor:not-allowed;"' : ''}>
+                <div style="display:flex; gap:10px; align-items:center;">
+                    <button class="btn-primary btn-sm" onclick="startFlashcardsStudy('${deck.id}')" ${dueCards.length === 0 ? 'disabled style="opacity:0.5; cursor:not-allowed;"' : ''}>
                         <i class="ph ph-play"></i> Estudar
                     </button>
-                    <button class="icon-btn btn-danger" onclick="deleteDeck('${deck.id}')"><i class="ph ph-trash"></i></button>
+                    <button class="icon-btn btn-secondary" onclick="openManageCards('${deck.id}')" title="Gerir Cartões"><i class="ph ph-list"></i></button>
+                    <button class="icon-action-btn btn-trash" onclick="deleteDeck('${deck.id}')"><i class="ph ph-trash"></i></button>
                 </div>
             </div>`;
         });
@@ -820,7 +894,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    // ABRIR E SALVAR MODAIS...
     document.getElementById('btn-open-new-deck').addEventListener('click', () => {
         document.getElementById('new-deck-name').value = '';
         modalBackdrop.classList.add('active');
@@ -992,8 +1065,134 @@ document.addEventListener('DOMContentLoaded', () => {
         container.innerHTML = html;
     };
 
+    window.openManageCards = (deckId) => {
+        currentManageDeckId = deckId;
+        const deck = db.flashcardDecks.find(d => d.id === deckId);
+        document.getElementById('manage-deck-title').textContent = deck ? deck.name : '';
+        renderManageCardsList();
+        modalBackdrop.classList.add('active');
+        document.getElementById('manage-cards-modal').classList.add('active');
+    };
+
+    const renderManageCardsList = () => {
+        const list = document.getElementById('manage-cards-list');
+        const cards = db.flashcards.filter(c => c.deckId === currentManageDeckId);
+        
+        if(cards.length === 0) {
+            list.innerHTML = '<p class="empty-state">Este deck está vazio.</p>';
+            return;
+        }
+        
+        let html = '<div style="display:flex; flex-direction:column;">';
+        cards.forEach(c => {
+            const statusLabel = c.status === 'new' ? 'Novo' : c.status === 'learning' ? 'Aprendizagem' : 'Graduado';
+            html += `
+            <div class="fc-manage-item">
+                <div class="fc-manage-text">
+                    <strong>F: ${c.front}</strong>
+                    <span>V: ${c.back}</span>
+                    <div style="font-size:0.75rem; color:var(--primary-color); margin-top:6px; font-weight:500;">
+                        ${statusLabel} | Próxima rev: ${formatDateBr(c.nextReview)}
+                    </div>
+                </div>
+                <div class="fc-manage-actions">
+                    <button class="icon-action-btn btn-edit" onclick="openEditCard('${c.id}')"><i class="ph ph-pencil-simple"></i></button>
+                    <button class="icon-action-btn btn-trash" onclick="deleteSingleCard('${c.id}')"><i class="ph ph-trash"></i></button>
+                </div>
+            </div>`;
+        });
+        html += '</div>';
+        list.innerHTML = html;
+    };
+
+    window.deleteSingleCard = (cardId) => {
+        if(confirm("Tem certeza que deseja excluir este cartão?")) {
+            db.flashcards = db.flashcards.filter(c => c.id !== cardId);
+            saveData();
+            renderManageCardsList();
+            renderFlashcardsDashboard(); 
+        }
+    };
+
+    window.openEditCard = (cardId) => {
+        const card = db.flashcards.find(c => c.id === cardId);
+        if(!card) return;
+        document.getElementById('edit-card-id').value = card.id;
+        document.getElementById('edit-card-front').value = card.front;
+        document.getElementById('edit-card-back').value = card.back;
+        
+        document.getElementById('manage-cards-modal').classList.remove('active');
+        document.getElementById('edit-card-modal').classList.add('active');
+    };
+
+    document.getElementById('btn-close-edit-modal').addEventListener('click', () => {
+        document.getElementById('edit-card-modal').classList.remove('active');
+        document.getElementById('manage-cards-modal').classList.add('active');
+    });
+
+    document.getElementById('btn-save-edit-card').addEventListener('click', () => {
+        const id = document.getElementById('edit-card-id').value;
+        const front = document.getElementById('edit-card-front').value.trim();
+        const back = document.getElementById('edit-card-back').value.trim();
+
+        if(!front || !back) return alert("Preencha frente e verso.");
+
+        const card = db.flashcards.find(c => c.id === id);
+        if(card) {
+            card.front = front;
+            card.back = back;
+            saveData();
+            
+            document.getElementById('edit-card-modal').classList.remove('active');
+            document.getElementById('manage-cards-modal').classList.add('active');
+            renderManageCardsList();
+            renderFlashcardsDashboard();
+        }
+    });
 
     // FLUXO DE ESTUDO DE FLASHCARDS
+    const finishFlashcardSession = async () => {
+        if (fcSessionReviewed > 0 && fcSessionStartTime) {
+            const elapsedMins = Math.ceil((Date.now() - fcSessionStartTime) / 60000);
+            const edital = getCurrentEdital();
+            const deckName = currentStudyDeckId ? db.flashcardDecks.find(d => d.id === currentStudyDeckId)?.name : 'Revisão Geral';
+
+            const novoEstudo = {
+                id: Date.now().toString() + '_fc',
+                editalId: edital.id,
+                data: getTodayDate(),
+                disciplina: 'Flashcards', 
+                assunto: deckName,
+                intervalo: null,
+                total: fcSessionReviewed,
+                acertos: fcSessionCorrect,
+                percentual: Math.round((fcSessionCorrect / fcSessionReviewed) * 100),
+                tempo: elapsedMins,
+                revisoes: []
+            };
+
+            const novoTempo = {
+                id: Date.now().toString() + '_fc_t',
+                editalId: edital.id,
+                data: getTodayDate(),
+                disciplina: 'Flashcards',
+                assunto: deckName,
+                tempoMinutos: elapsedMins,
+                tipo: 'revisao'
+            };
+
+            db.estudos.push(novoEstudo);
+            db.tempoEstudos.push(novoTempo);
+
+            await saveIncremental({ estudo: novoEstudo, tempo: novoTempo });
+            saveData();
+            
+            fcSessionReviewed = 0;
+            fcSessionCorrect = 0;
+            fcSessionStartTime = null;
+        }
+    };
+
     document.getElementById('btn-study-all-cards').addEventListener('click', () => {
         const edital = getCurrentEdital();
         if (!edital) return alert("Selecione um edital.");
@@ -1012,6 +1211,10 @@ document.addEventListener('DOMContentLoaded', () => {
         
         if (currentStudySessionCards.length === 0) return alert('Nenhum card pendente para estudo agora.');
 
+        fcSessionStartTime = Date.now();
+        fcSessionReviewed = 0;
+        fcSessionCorrect = 0;
+
         document.getElementById('flashcards-dashboard').style.display = 'none';
         document.getElementById('flashcards-study-area').style.display = 'block';
         
@@ -1025,8 +1228,11 @@ document.addEventListener('DOMContentLoaded', () => {
         renderNextFlashcard();
     };
 
-    document.getElementById('btn-exit-study').addEventListener('click', () => {
+    document.getElementById('btn-exit-study').addEventListener('click', async () => {
         if (waitTimerInterval) clearTimeout(waitTimerInterval);
+        
+        await finishFlashcardSession();
+        
         document.getElementById('flashcards-study-area').style.display = 'none';
         document.getElementById('flashcards-dashboard').style.display = 'block';
         renderFlashcardsDashboard();
@@ -1099,6 +1305,8 @@ document.addEventListener('DOMContentLoaded', () => {
         `;
 
         if (currentStudySessionCards.length === 0) {
+            finishFlashcardSession();
+            
             document.getElementById('fc-front-text').textContent = "Parabéns!";
             document.getElementById('fc-front-text').classList.remove('fc-waiting');
             document.getElementById('fc-back-text').textContent = "Você concluiu os estudos de hoje para este bloco.";
@@ -1177,6 +1385,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
         let card = db.flashcards.find(c => c.id === currentFlashcard.id);
         if(!card) return;
+
+        fcSessionReviewed++;
+        if (quality >= 2) fcSessionCorrect++;
 
         const now = Date.now();
         const today = getTodayDate();
@@ -1338,568 +1549,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    const renderDisciplinas = () => {
-        const list = document.getElementById('disciplinas-list'); list.innerHTML = '';
-        const edital = getCurrentEdital();
-        
-        if (!edital) { list.innerHTML = '<div class="empty-state">Selecione ou crie um novo edital.</div>'; return; }
-
-        if (edital.disciplinas.length === 0) { list.innerHTML = '<div class="empty-state">Nenhuma disciplina neste edital.</div>'; return; }
-        
-        edital.disciplinas.forEach(d => {
-            const assuntosEstudadosSet = new Set([...db.assuntosManuais.filter(m => m.disciplina === d.nome && (!m.editalId || m.editalId === edital.id)).map(m => m.assunto)]);
-            const totalAssuntos = d.assuntos.length; 
-            const qtdEstudada = assuntosEstudadosSet.size; 
-            const pct = totalAssuntos > 0 ? (qtdEstudada / totalAssuntos) * 100 : 0;
-            
-            const div = document.createElement('div'); div.className = 'disciplina-item';
-            
-            const safeDiscName = escapeQuotes(d.nome);
-
-            div.innerHTML = `
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-                    <div style="display:flex; align-items:center; gap:10px;">
-                        <h4 style="margin:0">${d.nome}</h4>
-                        <button class="icon-action-btn btn-edit" onclick="editDisc('${d.id}')" title="Editar Nome da Disciplina"><i class="ph ph-pencil-simple"></i></button>
-                    </div>
-                    <button class="icon-action-btn btn-trash" onclick="delDisc('${d.id}')" title="Excluir Disciplina"><i class="ph ph-trash"></i></button>
-                </div>
-
-                <div style="display:flex; justify-content:space-between; font-size:0.85rem; color:var(--text-light); margin-bottom:5px;"><span>Progresso Concluído</span><span>${qtdEstudada}/${totalAssuntos} (${Math.round(pct)}%)</span></div>
-                <div class="progress-bar-bg" style="margin-top:0; margin-bottom:15px;"><div style="width:${pct}%; height:100%; background:var(--success-color); transition: width 0.5s;"></div></div>
-                <ul class="assuntos-list">${d.assuntos.map(a => {
-                    const isStudied = assuntosEstudadosSet.has(a); 
-                    const studiedClass = isStudied ? 'studied' : ''; 
-                    const btnActive = isStudied ? 'active' : ''; 
-                    
-                    const subStudies = filterStudiesByEdital(db.estudos).filter(e => e.disciplina === d.nome && e.assunto === a);
-                    const subTimes = filterStudiesByEdital(db.tempoEstudos).filter(t => t.disciplina === d.nome && t.assunto === a);
-                    
-                    const q = subStudies.reduce((acc, e) => acc + e.total, 0); 
-                    const ac = subStudies.reduce((acc, e) => acc + e.acertos, 0); 
-                    const perc = q > 0 ? Math.round((ac/q)*100) : 0; 
-                    const time = subTimes.reduce((acc, t) => acc + t.tempoMinutos, 0);
-                    
-                    const safeAssunto = escapeQuotes(a);
-
-                    const clickAction = isStudied 
-                        ? `toggleManualStudy('${safeDiscName}', '${safeAssunto}')` 
-                        : `openRegistroModal('${safeDiscName}', '${safeAssunto}', true)`; 
-
-                    return `<li class="assunto-item ${studiedClass}">
-                        <div class="assunto-content"><span>${a}</span></div>
-                        <div class="assunto-stats">
-                            ${q > 0 ? `<span class="stat-pill">Q: <strong>${q}</strong></span>` : ''}
-                            ${q > 0 ? `<span class="stat-pill">Ac: <strong>${ac}</strong></span>` : ''}
-                            ${q > 0 ? `<span class="stat-pill" style="color:${perc>=80?'var(--success-color)':perc<50?'var(--danger-color)':'var(--warning-color)'}">${perc}%</span>` : ''}
-                            ${time > 0 ? `<span class="stat-pill"><i class="ph ph-timer"></i> <strong>${time}m</strong></span>` : ''}
-                        </div>
-                        <div class="assunto-actions">
-                            <button class="icon-action-btn btn-edit" onclick="editAss('${d.id}', '${safeAssunto}')" title="Editar Nome do Assunto" style="margin-right:5px;"><i class="ph ph-pencil-simple"></i></button>
-                            <button class="icon-action-btn btn-check-manual ${btnActive}" onclick="${clickAction}" title="${isStudied ? 'Desmarcar' : 'Concluir e Registrar'}"><i class="ph ph-check"></i></button>
-                            <button class="icon-action-btn btn-trash" onclick="delAss('${d.id}','${safeAssunto}')" title="Excluir Assunto"><i class="ph ph-trash"></i></button>
-                        </div>
-                    </li>`;
-                }).join('')}</ul>
-                <form onsubmit="addAssunto(event, '${d.id}')" style="margin-top:15px; display:flex; gap:8px;">
-                    <input type="text" placeholder="Adicionar tópico..." required style="padding:8px; flex:1; font-size:0.9rem;">
-                    <button class="btn-secondary btn-sm" style="font-weight:bold;"><i class="ph ph-plus"></i></button>
-                </form>`;
-            list.appendChild(div);
-        });
-    };
-
-    window.toggleManualStudy = (disciplina, assunto) => {
-        const edital = getCurrentEdital();
-        const index = db.assuntosManuais.findIndex(m => m.disciplina === disciplina && m.assunto === assunto && m.editalId === edital.id);
-        
-        if (index > -1) { 
-            db.assuntosManuais.splice(index, 1); 
-            saveData(); 
-            
-            renderDisciplinas(); 
-            if(document.getElementById('page-estatisticas').classList.contains('active')) renderEstatisticas();
-            renderHomePage(); 
-        }
-    };
-
-    window.delDisc = (id) => { 
-        if(confirm('Excluir disciplina e histórico do edital?')) { 
-            const edital = getCurrentEdital();
-            edital.disciplinas = edital.disciplinas.filter(d => d.id !== id);
-            saveData(); renderDisciplinas(); 
-        }
-    };
-
-    window.editDisc = (id) => {
-        const edital = getCurrentEdital();
-        if (!edital) return;
-
-        const d = edital.disciplinas.find(x => x.id === id);
-        if (!d) return;
-
-        const novoNome = prompt("Novo nome para a disciplina:", d.nome);
-        
-        if (novoNome && novoNome.trim() !== "" && novoNome !== d.nome) {
-            const nomeAntigo = d.nome;
-            const nomeNovo = novoNome.trim();
-
-            d.nome = nomeNovo;
-            db.estudos.forEach(e => { if ((!e.editalId || e.editalId === edital.id) && e.disciplina === nomeAntigo) e.disciplina = nomeNovo; });
-            db.tempoEstudos.forEach(t => { if ((!t.editalId || t.editalId === edital.id) && t.disciplina === nomeAntigo) t.disciplina = nomeNovo; });
-            db.assuntosManuais.forEach(m => { if ((!m.editalId || m.editalId === edital.id) && m.disciplina === nomeAntigo) m.disciplina = nomeNovo; });
-            if (edital.ciclo && edital.ciclo.deck) { edital.ciclo.deck = edital.ciclo.deck.map(item => item === nomeAntigo ? nomeNovo : item); }
-
-            saveData();
-            renderDisciplinas();
-            renderHomePage(); 
-            alert("Disciplina renomeada e histórico atualizado!");
-        }
-    };
-    
-    window.delAss = (id, a) => { 
-        if(confirm('Excluir assunto?')) { 
-            const edital = getCurrentEdital();
-            const d = edital.disciplinas.find(x => x.id === id); 
-            if(d) d.assuntos = d.assuntos.filter(x => x !== a);
-            saveData(); renderDisciplinas(); 
-        }
-    };
-
-    window.editAss = (discId, nomeAssuntoAntigo) => {
-        const edital = getCurrentEdital();
-        if (!edital) return;
-
-        const d = edital.disciplinas.find(x => x.id === discId);
-        if (!d) return;
-
-        const div = document.createElement('div');
-        div.innerHTML = nomeAssuntoAntigo;
-        const nomeRealAntigo = div.innerText;
-
-        const novoNome = prompt("Novo nome para o assunto:", nomeRealAntigo);
-
-        if (novoNome && novoNome.trim() !== "" && novoNome !== nomeRealAntigo) {
-            const nomeNovo = novoNome.trim();
-            if (d.assuntos.includes(nomeNovo)) return alert("Já existe um assunto com este nome nesta disciplina.");
-
-            const index = d.assuntos.indexOf(nomeRealAntigo);
-            if (index !== -1) d.assuntos[index] = nomeNovo;
-
-            db.estudos.forEach(e => { if ((!e.editalId || e.editalId === edital.id) && e.disciplina === d.nome && e.assunto === nomeRealAntigo) e.assunto = nomeNovo; });
-            db.tempoEstudos.forEach(t => { if ((!t.editalId || t.editalId === edital.id) && t.disciplina === d.nome && t.assunto === nomeRealAntigo) t.assunto = nomeNovo; });
-            db.assuntosManuais.forEach(m => { if ((!m.editalId || m.editalId === edital.id) && m.disciplina === d.nome && m.assunto === nomeRealAntigo) m.assunto = nomeNovo; });
-
-            saveData();
-            renderDisciplinas();
-            renderHomePage();
-        }
-    };
-    
-    window.addAssunto = (e, id) => { 
-        e.preventDefault(); 
-        const input = e.target.querySelector('input'); 
-        const edital = getCurrentEdital();
-        const d = edital.disciplinas.find(x => x.id === id); 
-        if(d && !d.assuntos.includes(input.value)) { 
-            d.assuntos.push(input.value); d.assuntos.sort(); 
-            saveData(); renderDisciplinas(); 
-        } 
-    };
-
-    const btnOpenAddDisc = document.getElementById('btn-open-add-disc');
-    if(btnOpenAddDisc) btnOpenAddDisc.addEventListener('click', () => { 
-        const edital = getCurrentEdital();
-        if (!edital) return alert("Crie um edital primeiro!");
-        
-        if (edital.isTrilha) {
-            document.getElementById('trilha-csv-input').value = '';
-            modalBackdrop.classList.add('active');
-            document.getElementById('import-trilha-modal').classList.add('active');
-        } else {
-            document.getElementById('new-disc-name').value = ''; 
-            document.getElementById('new-disc-subjects').value = ''; 
-            document.getElementById('add-disc-edital-name').textContent = edital.nome;
-            modalBackdrop.classList.add('active'); 
-            document.getElementById('add-disciplina-modal').classList.add('active'); 
-        }
-    });
-    
-    const btnSaveNewDisc = document.getElementById('btn-save-new-disc');
-    if(btnSaveNewDisc) btnSaveNewDisc.addEventListener('click', () => {
-        const nome = document.getElementById('new-disc-name').value.trim(); 
-        const subjectsText = document.getElementById('new-disc-subjects').value;
-        const edital = getCurrentEdital();
-        
-        if (!edital) return alert("Crie um edital primeiro!");
-
-        if (!nome) return alert("Digite o nome."); 
-        if (edital.disciplinas.some(d => d.nome.toLowerCase() === nome.toLowerCase())) return alert("Já existe neste edital.");
-        
-        const assuntosList = subjectsText.split(';').map(s => s.trim()).filter(s => s.length > 0);
-        edital.disciplinas.push({ id: Date.now().toString(), nome: nome, assuntos: assuntosList }); 
-        
-        saveData(); renderDisciplinas(); 
-        modalBackdrop.classList.remove('active'); 
-        document.getElementById('add-disciplina-modal').classList.remove('active'); 
-        alert("Disciplina criada!");
-    });
-
-    const btnProcessTrilha = document.getElementById('btn-process-trilha');
-    if(btnProcessTrilha) btnProcessTrilha.addEventListener('click', () => {
-        const input = document.getElementById('trilha-csv-input').value;
-        const edital = getCurrentEdital();
-
-        if(!input.trim()) return alert("Cole os dados da trilha.");
-        if(!edital) return;
-
-        const lines = input.split('\n');
-        let processedCount = 0;
-
-        lines.forEach(line => {
-            const parts = line.split(';');
-            if(parts.length >= 4) {
-                const [trilhaNum, tarefaNum, discRaw, tituloRaw] = parts.map(p => p.trim());
-                if(!discRaw || !tituloRaw) return;
-
-                const nomeDisciplina = discRaw;
-                const nomeAssunto = `T${tarefaNum} - ${tituloRaw}`;
-
-                let disciplinaObj = edital.disciplinas.find(d => d.nome.toLowerCase() === nomeDisciplina.toLowerCase());
-                
-                if(!disciplinaObj) {
-                    disciplinaObj = { 
-                        id: Date.now().toString() + Math.random().toString().substr(2, 5), 
-                        nome: nomeDisciplina, 
-                        assuntos: [] 
-                    };
-                    edital.disciplinas.push(disciplinaObj);
-                }
-
-                if(!disciplinaObj.assuntos.includes(nomeAssunto)) {
-                    disciplinaObj.assuntos.push(nomeAssunto);
-                    processedCount++;
-                }
-            }
-        });
-
-        edital.disciplinas.forEach(d => {
-            d.assuntos.sort((a, b) => {
-                const regex = /^T(\d+)/;
-                const matchA = a.match(regex);
-                const matchB = b.match(regex);
-                if(matchA && matchB) {
-                    return parseInt(matchA[1]) - parseInt(matchB[1]);
-                }
-                return a.localeCompare(b);
-            });
-        });
-
-        if(processedCount > 0) {
-            saveData();
-            renderDisciplinas();
-            modalBackdrop.classList.remove('active');
-            document.getElementById('import-trilha-modal').classList.remove('active');
-            alert(`${processedCount} tarefas importadas com sucesso!`);
-        } else {
-            alert("Nenhuma tarefa válida encontrada ou todas já foram importadas. Verifique o formato.");
-        }
-    });
-
-    const btnGerarCiclo = document.getElementById('gerar-ciclo-btn');
-    if(btnGerarCiclo) btnGerarCiclo.addEventListener('click', () => { 
-        const edital = getCurrentEdital();
-        if(!edital) return alert("Crie um edital primeiro!");
-
-        const porDia = parseInt(document.getElementById('ciclo-disciplinas-por-dia').value); 
-        const metaHoras = parseInt(document.getElementById('config-meta-horas').value); 
-        let deck = []; 
-        
-        if (edital.isTrilha) {
-            const allowedDisciplines = [];
-            document.querySelectorAll('.ciclo-peso').forEach(input => {
-                if (parseInt(input.value) > 0) {
-                    allowedDisciplines.push(input.dataset.nome);
-                }
-            });
-
-            if (allowedDisciplines.length === 0) return alert("Selecione pelo menos uma disciplina (valor > 0).");
-
-            let allTasks = [];
-            edital.disciplinas.forEach(d => {
-                if (allowedDisciplines.includes(d.nome)) {
-                    d.assuntos.forEach(a => {
-                        allTasks.push({ nomeDisc: d.nome, assunto: a, taskNum: getTaskNumber(a) });
-                    });
-                }
-            });
-
-            allTasks.sort((a, b) => a.taskNum - b.taskNum);
-            deck = allTasks.map(t => t.nomeDisc);
-            
-        } else {
-            document.querySelectorAll('.ciclo-peso').forEach(i => { 
-                const qtd = parseInt(i.value); for(let k=0; k<qtd; k++) deck.push(i.dataset.nome); 
-            }); 
-            
-            if(deck.length === 0) return alert("Selecione disciplinas."); 
-            for (let i = deck.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [deck[i], deck[j]] = [deck[j], deck[i]]; } 
-        }
-        
-        edital.ciclo = { deck, disciplinasPorDia: porDia, metaHoras: metaHoras }; 
-        saveData(); renderCicloFila(edital); renderCicloPreview(edital); 
-        alert("Nova fila gerada para este edital!"); 
-    });
-
-    const renderCicloConfig = () => { 
-        const edital = getCurrentEdital();
-        const container = document.getElementById('ciclo-disciplinas-selecao'); 
-        
-        if(!edital) {
-            container.innerHTML = '<p class="empty-state">Sem edital ativo.</p>';
-            return;
-        }
-
-        if(!edital.ciclo) edital.ciclo = { deck: [], disciplinasPorDia: 3, metaHoras: 4 };
-
-        document.getElementById('config-meta-horas').value = edital.ciclo.metaHoras || 4; 
-        document.getElementById('ciclo-disciplinas-por-dia').value = edital.ciclo.disciplinasPorDia || 3;
-
-        container.innerHTML = edital.disciplinas.map(d => `<div style="margin-bottom:8px; display:flex; justify-content:space-between; align-items:center; border:1px solid var(--border-color); padding:8px; border-radius:6px;"><label style="margin:0">${d.nome}</label><input type="number" class="ciclo-peso" data-nome="${d.nome}" value="1" min="0" max="10" style="width:60px; padding:5px;"></div>`).join(''); 
-        renderCicloPreview(edital); 
-    };
-
-    const renderCicloPreview = (edital) => { 
-        const list = document.getElementById('ciclo-resultado-list'); 
-        const deck = edital.ciclo.deck; 
-        const porDia = edital.ciclo.disciplinasPorDia || 3; 
-        
-        if(!deck || deck.length === 0) { list.innerHTML = '<p class="empty-state">Ciclo não gerado.</p>'; return; } 
-        let html = ''; 
-        for(let i=0; i<deck.length; i+=porDia) { 
-            html += `<div style="margin-bottom:10px; padding:10px; background:var(--bg-color); border-radius:6px;"><strong>Bloco ${Math.floor(i/porDia)+1}:</strong> ${deck.slice(i, i+porDia).join(', ')}</div>`; 
-        } 
-        list.innerHTML = html; 
-    };
-
-    window.openRegistroModal = (disc = null, assuntoPreSelecionado = null, fromListClick = false) => {
-        const edital = getCurrentEdital();
-        if (!edital) return alert("Crie um edital primeiro!");
-
-        const discSelectGroup = document.getElementById('reg-disciplina-select-group');
-        const discSelect = document.getElementById('reg-disciplina-select');
-        const discHidden = document.getElementById('reg-disciplina-hidden');
-        const modalTitle = document.getElementById('reg-modal-title');
-        const finalizadoCheckbox = document.getElementById('reg-finalizado');
-        const revisoesCheckbox = document.getElementById('reg-agendar-revisoes'); 
-        const dataInput = document.getElementById('reg-data-input');
-        const semDataCheckbox = document.getElementById('reg-sem-data');
-        
-        document.getElementById('reg-novo-assunto').value = ''; 
-        document.getElementById('reg-inicio').value = '';
-        document.getElementById('reg-fim').value = '';
-
-        document.getElementById('reg-questoes').value = ''; 
-        document.getElementById('reg-acertos').value = ''; 
-        document.getElementById('reg-tempo').value = '';
-        finalizadoCheckbox.checked = false;
-        
-        if(revisoesCheckbox) revisoesCheckbox.checked = true;
-
-        dataInput.value = getTodayDate();
-        dataInput.disabled = false;
-        semDataCheckbox.checked = false;
-        
-        isLegacyRegistration = fromListClick; 
-        
-        if (assuntoPreSelecionado) {
-            finalizadoCheckbox.checked = true;
-        }
-
-        semDataCheckbox.onchange = (e) => {
-            dataInput.disabled = e.target.checked;
-        };
-
-        if (disc) {
-            discSelectGroup.style.display = 'none'; 
-            discHidden.value = disc; 
-            modalTitle.textContent = disc; 
-            populateRegAssuntos(disc); 
-
-            if(assuntoPreSelecionado) {
-                const select = document.getElementById('reg-assunto-select');
-                let optionExists = false;
-                for (let i = 0; i < select.options.length; i++) {
-                    if (select.options[i].value === assuntoPreSelecionado) {
-                        optionExists = true;
-                        break;
-                    }
-                }
-                if(!optionExists) {
-                    const opt = document.createElement('option');
-                    opt.value = assuntoPreSelecionado;
-                    opt.textContent = assuntoPreSelecionado;
-                    select.appendChild(opt);
-                }
-                select.value = assuntoPreSelecionado;
-            }
-        } else {
-            discSelectGroup.style.display = 'block'; 
-            discSelect.innerHTML = edital.disciplinas.map(d => `<option value="${d.nome}">${d.nome}</option>`).join('');
-            if (edital.disciplinas.length > 0) { 
-                discHidden.value = edital.disciplinas[0].nome; 
-                modalTitle.textContent = edital.disciplinas[0].nome; 
-                populateRegAssuntos(edital.disciplinas[0].nome); 
-            } else { 
-                modalTitle.textContent = "Sem disciplinas"; 
-                populateRegAssuntos(null); 
-            }
-            discSelect.onchange = (e) => { discHidden.value = e.target.value; modalTitle.textContent = e.target.value; populateRegAssuntos(e.target.value); };
-        }
-        modalBackdrop.classList.add('active'); document.getElementById('registro-modal').classList.add('active');
-    };
-
-    const populateRegAssuntos = (discName) => {
-        const select = document.getElementById('reg-assunto-select'); select.innerHTML = '<option value="">Selecione um assunto...</option>'; document.getElementById('reg-novo-assunto').value = '';
-        if (!discName) return; 
-        const edital = getCurrentEdital();
-        
-        const dObj = edital.disciplinas.find(d => d.nome.toLowerCase() === discName.toLowerCase()); 
-        
-        if (dObj && dObj.assuntos.length > 0) { 
-            dObj.assuntos.forEach(a => { const opt = document.createElement('option'); opt.value = a; opt.textContent = a; select.appendChild(opt); }); 
-        }
-    };
-
-    const btnSalvarRegistro = document.getElementById('btn-salvar-registro');
-    if(btnSalvarRegistro) btnSalvarRegistro.addEventListener('click', async () => {
-        if(isSaving) return;
-        isSaving = true;
-
-        const btn = btnSalvarRegistro;
-        const originalText = btn.textContent;
-        
-        try {
-            const disc = document.getElementById('reg-disciplina-hidden').value; 
-            const novoAssunto = document.getElementById('reg-novo-assunto').value.trim(); 
-            const assuntoSelecionado = document.getElementById('reg-assunto-select').value; 
-            const finalizado = document.getElementById('reg-finalizado').checked;
-            const agendarRevisoes = document.getElementById('reg-agendar-revisoes').checked; 
-            const edital = getCurrentEdital();
-            
-            const semData = document.getElementById('reg-sem-data').checked;
-            let dataRegistro = semData ? 'SEM_DATA' : (document.getElementById('reg-data-input').value || getTodayDate());
-
-            if (!disc) { isSaving = false; return alert("Selecione disciplina."); }
-            
-            const pgInicio = document.getElementById('reg-inicio').value.trim();
-            const pgFim = document.getElementById('reg-fim').value.trim();
-            let intervaloStr = null;
-            if(pgInicio || pgFim) {
-                intervaloStr = `${pgInicio || '?'} até ${pgFim || '?'}`;
-            }
-
-            let assuntoFinal = ""; 
-            if (novoAssunto) { 
-                assuntoFinal = novoAssunto; 
-                const dObj = edital.disciplinas.find(d => d.nome === disc); 
-                if (dObj && !dObj.assuntos.includes(novoAssunto)) { 
-                    dObj.assuntos.push(novoAssunto); 
-                    dObj.assuntos.sort(); 
-                } 
-            } else if (assuntoSelecionado) { assuntoFinal = assuntoSelecionado; }
-            
-            if (!assuntoFinal) { isSaving = false; return alert("Selecione assunto."); }
-            
-            const totalQ = parseInt(document.getElementById('reg-questoes').value) || 0; 
-            const totalA = parseInt(document.getElementById('reg-acertos').value) || 0; 
-            const totalT = parseInt(document.getElementById('reg-tempo').value) || 0;
-            
-            if (totalA > totalQ) { isSaving = false; return alert("Acertos > Questões."); }
-            
-            let revisoesArray = [];
-            if (agendarRevisoes) {
-                revisoesArray = [
-                    {data: addDays(dataRegistro, 1), concluida: false},
-                    {data: addDays(dataRegistro, 7), concluida: false},
-                    {data: addDays(dataRegistro, 30), concluida: false}
-                ];
-            }
-
-            const novoEstudo = { 
-                id: Date.now().toString(), 
-                editalId: edital.id, 
-                data: dataRegistro, 
-                disciplina: disc, 
-                assunto: assuntoFinal, 
-                intervalo: intervaloStr,
-                total: totalQ, 
-                acertos: totalA, 
-                percentual: totalQ > 0 ? (totalA/totalQ)*100 : 0,
-                tempo: totalT, 
-                revisoes: revisoesArray 
-            }; 
-            
-            let novoTempo = null;
-            if (totalT > 0 || totalQ > 0 || finalizado) { 
-                novoTempo = { 
-                    id: Date.now().toString()+'m', 
-                    editalId: edital.id, 
-                    data: dataRegistro, 
-                    disciplina: disc, 
-                    assunto: assuntoFinal, 
-                    tempoMinutos: Number(totalT), 
-                    tipo: 'manual' 
-                }; 
-            }
-            
-            db.estudos.push(novoEstudo);
-            if (novoTempo) db.tempoEstudos.push(novoTempo);
-            
-            let precisaSalvarDBCompleto = false;
-
-            if (finalizado) { 
-                if(!db.assuntosManuais.some(m => m.disciplina === disc && m.assunto === assuntoFinal && m.editalId === edital.id)) { 
-                    db.assuntosManuais.push({disciplina: disc, assunto: assuntoFinal, editalId: edital.id}); 
-                    precisaSalvarDBCompleto = true;
-                } 
-            }
-            if (novoAssunto) precisaSalvarDBCompleto = true;
-            
-            if (!isLegacyRegistration) {
-                rotateCycle(disc); 
-                precisaSalvarDBCompleto = true; 
-            }
-            
-            btn.textContent = "Sincronizando...";
-            btn.disabled = true;
-
-            await saveIncremental({ estudo: novoEstudo, tempo: novoTempo });
-
-            if (precisaSalvarDBCompleto) {
-                saveData(); 
-            }
-
-            renderHomePage(); 
-            renderDisciplinas(); 
-            
-            if(document.getElementById('page-estatisticas').classList.contains('active')) renderEstatisticas();
-            if(document.getElementById('page-ciclo').classList.contains('active')) renderCicloConfig();
-
-            modalBackdrop.classList.remove('active'); 
-            document.getElementById('registro-modal').classList.remove('active'); 
-            alert("Salvo com sucesso!");
-
-        } catch (e) {
-            console.error(e);
-            alert("Atenção: Erro de conexão ao sincronizar. O registro foi salvo apenas localmente por enquanto.\nErro: " + (e.message || "Desconhecido"));
-        } finally {
-            btn.textContent = originalText;
-            btn.disabled = false;
-            isSaving = false;
-        }
-    });
-
     const renderEstatisticas = () => {
         const edital = getCurrentEdital();
         if (!edital) return; 
@@ -1929,7 +1578,12 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('stat-total-horas').textContent = formatDuration(totMin);
         
         let totQ = 0, totA = 0; 
-        estudosF.forEach(e => { totQ += e.total; totA += e.acertos; }); 
+        estudosF.forEach(e => { 
+            if (e.disciplina !== 'Flashcards') { // Ignora flashcards na estatística global de questões
+                totQ += (Number(e.total) || 0); 
+                totA += (Number(e.acertos) || 0); 
+            }
+        }); 
         document.getElementById('stat-total-questoes').textContent = totQ; 
         document.getElementById('stat-media-geral').textContent = totQ > 0 ? `${Math.round((totA/totQ)*100)}%` : '0%';
         
@@ -2389,7 +2043,11 @@ document.addEventListener('DOMContentLoaded', () => {
     
     document.getElementById('theme-toggle').addEventListener('click', toggleTheme);
 
-    document.querySelectorAll('.modal-close-btn').forEach(b => b.addEventListener('click', () => { modalBackdrop.classList.remove('active'); document.querySelectorAll('.modal').forEach(m => m.classList.remove('active')); }));
+    document.querySelectorAll('.modal-close-btn').forEach(b => b.addEventListener('click', () => { 
+        if (b.id === 'btn-close-edit-modal') return; 
+        modalBackdrop.classList.remove('active'); 
+        document.querySelectorAll('.modal').forEach(m => m.classList.remove('active')); 
+    }));
     
     const savedTheme = localStorage.getItem('studyAppTheme');
     if(savedTheme) document.body.dataset.theme = savedTheme;
