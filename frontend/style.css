@@ -427,3 +427,45 @@ button:hover { opacity: 0.85; }
     .fc-actions { gap: 5px; }
     .fc-btn { padding: 8px 5px; font-size: 0.8rem; }
 }
+
+/* ===== STATUS DOS FLASHCARDS ===== */
+.anki-counts {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-top: 8px;
+    flex-wrap: wrap;
+}
+
+.fc-status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 0.85rem;
+    font-weight: 600;
+}
+
+/* Azul para cards novos */
+.fc-status-new {
+    background-color: rgba(59, 130, 246, 0.15);
+    color: #2563eb;
+}
+
+/* Vermelho/Laranja para aprendizagem (erros recentes) */
+.fc-status-learn {
+    background-color: rgba(239, 68, 68, 0.15);
+    color: #dc2626;
+}
+
+/* Verde para revisão agendada */
+.fc-status-review {
+    background-color: rgba(16, 185, 129, 0.15);
+    color: #059669;
+}
+
+/* Tema escuro: ajustando brilho das etiquetas */
+[data-theme="dark"] .fc-status-new { color: #60a5fa; background-color: rgba(59, 130, 246, 0.2); }
+[data-theme="dark"] .fc-status-learn { color: #f87171; background-color: rgba(239, 68, 68, 0.2); }
+[data-theme="dark"] .fc-status-review { color: #34d399; background-color: rgba(16, 185, 129, 0.2); }

@@ -47,13 +47,21 @@ export const renderFlashcardsDashboard = () => {
         const countLearn = dueCards.filter(c => c.status === 'learning').length;
         const countReview = dueCards.filter(c => c.status === 'review').length;
 
+        // ETIQUETAS VISUAIS (BADGES) COM ÍCONES
         const countsHtml = dueCards.length > 0 
-            ? `<div class="anki-counts" style="border:none; padding:0; justify-content:flex-start; margin-top:5px;"><span class="anki-new" title="Novos">${countNew}</span><span class="anki-learn" title="Aprendizagem">${countLearn}</span><span class="anki-review" title="Revisão">${countReview}</span></div>` 
-            : `<small style="color:var(--text-light)">Tudo em dia!</small>`;
+            ? `<div class="anki-counts">
+                 <span class="fc-status-badge fc-status-new" title="Cards Novos"><i class="ph ph-sparkle"></i> ${countNew}</span>
+                 <span class="fc-status-badge fc-status-learn" title="Em Aprendizagem"><i class="ph ph-brain"></i> ${countLearn}</span>
+                 <span class="fc-status-badge fc-status-review" title="Para Revisão"><i class="ph ph-arrows-clockwise"></i> ${countReview}</span>
+               </div>` 
+            : `<div class="anki-counts"><span class="fc-status-badge" style="background:var(--border-color); color:var(--text-light)"><i class="ph ph-check-circle"></i> Tudo em dia!</span></div>`;
 
         list.innerHTML += `
         <div class="card deck-item" style="margin-bottom:0; flex-direction: row; flex-wrap:wrap; gap:15px;">
-            <div class="deck-info" style="flex:1; min-width:200px;"><strong>${deck.name}</strong>${countsHtml}</div>
+            <div class="deck-info" style="flex:1; min-width:200px;">
+                <strong>${deck.name}</strong>
+                ${countsHtml}
+            </div>
             <div style="display:flex; gap:10px; align-items:center;">
                 <button class="btn-primary btn-sm" onclick="startFlashcardsStudy('${deck.id}')" ${dueCards.length === 0 ? 'disabled style="opacity:0.5; cursor:not-allowed;"' : ''}><i class="ph ph-play"></i> Estudar</button>
                 <button class="icon-btn btn-secondary" onclick="openManageCards('${deck.id}')" title="Gerir Cartões"><i class="ph ph-list"></i></button>
@@ -119,8 +127,13 @@ const renderNextFlashcard = () => {
     const countLearn = currentStudySessionCards.filter(c => c.status === 'learning').length;
     const countReview = currentStudySessionCards.filter(c => c.status === 'review').length;
 
+    // ETIQUETAS VISUAIS NO CABEÇALHO DO ESTUDO
     document.getElementById('study-cards-left').innerHTML = `
-        <div class="anki-counts"><span class="anki-new" title="Novos">${countNew}</span><span class="anki-learn" title="Aprendizado">${countLearn}</span><span class="anki-review" title="A Revisar">${countReview}</span></div>`;
+        <div class="anki-counts">
+             <span class="fc-status-badge fc-status-new" title="Cards Novos"><i class="ph ph-sparkle"></i> ${countNew}</span>
+             <span class="fc-status-badge fc-status-learn" title="Em Aprendizagem"><i class="ph ph-brain"></i> ${countLearn}</span>
+             <span class="fc-status-badge fc-status-review" title="Para Revisão"><i class="ph ph-arrows-clockwise"></i> ${countReview}</span>
+        </div>`;
 
     if (currentStudySessionCards.length === 0) {
         finishFlashcardSession();
@@ -267,8 +280,13 @@ const renderManageCardsList = () => {
     
     let html = '<div style="display:flex; flex-direction:column;">';
     cards.forEach(c => {
-        const statusLabel = c.status === 'new' ? 'Novo' : c.status === 'learning' ? 'Aprendizagem' : 'Graduado';
-        html += `<div class="fc-manage-item"><div class="fc-manage-text"><strong>F: ${c.front}</strong><span>V: ${c.back}</span><div style="font-size:0.75rem; color:var(--primary-color); margin-top:6px; font-weight:500;">${statusLabel} | Próxima rev: ${formatDateBr(c.nextReview)}</div></div><div class="fc-manage-actions"><button class="icon-action-btn btn-edit" onclick="openEditCard('${c.id}')"><i class="ph ph-pencil-simple"></i></button><button class="icon-action-btn btn-trash" onclick="deleteSingleCard('${c.id}')"><i class="ph ph-trash"></i></button></div></div>`;
+        // Aproveitando as cores do CSS para o gerenciador de cards também
+        let statusLabel = '';
+        if(c.status === 'new') statusLabel = '<span class="fc-status-badge fc-status-new" style="font-size:0.7rem; padding:2px 6px;">Novo</span>';
+        else if(c.status === 'learning') statusLabel = '<span class="fc-status-badge fc-status-learn" style="font-size:0.7rem; padding:2px 6px;">Aprendendo</span>';
+        else statusLabel = '<span class="fc-status-badge fc-status-review" style="font-size:0.7rem; padding:2px 6px;">Revisão</span>';
+
+        html += `<div class="fc-manage-item"><div class="fc-manage-text"><strong>F: ${c.front}</strong><span>V: ${c.back}</span><div style="font-size:0.75rem; color:var(--text-light); margin-top:6px; font-weight:500; display:flex; align-items:center; gap:8px;">${statusLabel} <span>Próxima rev: ${formatDateBr(c.nextReview)}</span></div></div><div class="fc-manage-actions"><button class="icon-action-btn btn-edit" onclick="openEditCard('${c.id}')"><i class="ph ph-pencil-simple"></i></button><button class="icon-action-btn btn-trash" onclick="deleteSingleCard('${c.id}')"><i class="ph ph-trash"></i></button></div></div>`;
     });
     list.innerHTML = html + '</div>';
 };
