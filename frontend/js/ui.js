@@ -25,7 +25,7 @@ export const updateEditalUI = () => {
         const modalBackdrop = document.getElementById('modal-backdrop');
         
         if(edital.isTrilha) {
-            novoBtn.innerHTML = '<i class="ph ph-clipboard-text"></i> Adicionar Trilha';
+            novoBtn.innerHTML = '<i class="ph ph-folders"></i> Importar Aulas';
             novoBtn.classList.replace('btn-primary', 'btn-secondary'); 
             novoBtn.addEventListener('click', () => {
                 document.getElementById('trilha-csv-input').value = '';
@@ -196,29 +196,74 @@ export const renderDisciplinas = () => {
         const perc = assuntos.length > 0 ? Math.round((concluidos.length / assuntos.length) * 100) : 0;
 
         let assuntosHtml = '<ul class="assuntos-list">';
-        assuntos.forEach(a => {
-            const isConcluido = concluidos.some(c => c.assunto === a);
-            const safeDisc = escapeQuotes(d.nome); const safeAssunto = escapeQuotes(a);
+        
+        if (edital.isTrilha) {
+            const groups = {};
+            const ungrouped = [];
             
-            // ATUALIZADO AQUI: Corrigida a aparência dos botões para ficarem idênticos (apenas ícones limpos)
-            assuntosHtml += `<li class="assunto-item ${isConcluido ? 'studied' : ''}">
-                <div class="assunto-content">${a}</div>
-                <div class="assunto-actions">
-                    <button class="icon-action-btn btn-check-manual ${isConcluido ? 'active' : ''}" onclick="toggleAssuntoConcluido('${safeDisc}', '${safeAssunto}')" title="Marcar como concluído">
-                        <i class="ph ph-check-circle"></i>
-                    </button>
-                    <button class="icon-action-btn" style="color:var(--primary-color)" onclick="openRegistroModal('${safeDisc}', '${safeAssunto}', true)" title="Registrar Estudo neste assunto">
-                        <i class="ph ph-book-open"></i>
-                    </button>
-                    <button class="icon-action-btn" style="color:var(--text-light)" onclick="editAssunto('${safeDisc}', '${safeAssunto}')" title="Editar nome do assunto">
-                        <i class="ph ph-pencil-simple"></i>
-                    </button>
-                    <button class="icon-action-btn btn-trash" onclick="removeAssunto('${safeDisc}', '${safeAssunto}')" title="Remover assunto">
-                        <i class="ph ph-trash"></i>
-                    </button>
-                </div>
-            </li>`;
-        });
+            // Separa os assuntos que possuem o formato "Grupo - Conteúdo"
+            assuntos.forEach(a => {
+                const firstDash = a.indexOf(' - ');
+                if (firstDash > 0) {
+                    const groupName = a.substring(0, firstDash).trim();
+                    const displayText = a.substring(firstDash + 3).trim();
+                    if (!groups[groupName]) groups[groupName] = [];
+                    groups[groupName].push({ original: a, display: displayText });
+                } else {
+                    ungrouped.push({ original: a, display: a });
+                }
+            });
+
+            const renderItem = (item, isGrouped) => {
+                const isConcluido = concluidos.some(c => c.assunto === item.original);
+                const safeDisc = escapeQuotes(d.nome); const safeAssunto = escapeQuotes(item.original);
+                // Adiciona um espaçamento (indentação) se pertencer a uma aula
+                const stylePadding = isGrouped ? 'padding-left: 20px; border-left: 2px solid var(--border-color); margin-left: 8px;' : '';
+                
+                return `<li class="assunto-item ${isConcluido ? 'studied' : ''}" style="${stylePadding}">
+                    <div class="assunto-content">${item.display}</div>
+                    <div class="assunto-actions">
+                        <button class="icon-action-btn btn-check-manual ${isConcluido ? 'active' : ''}" onclick="toggleAssuntoConcluido('${safeDisc}', '${safeAssunto}')" title="Marcar como concluído"><i class="ph ph-check-circle"></i></button>
+                        <button class="icon-action-btn" style="color:var(--primary-color)" onclick="openRegistroModal('${safeDisc}', '${safeAssunto}', true)" title="Registrar Estudo"><i class="ph ph-book-open"></i></button>
+                        <button class="icon-action-btn" style="color:var(--text-light)" onclick="editAssunto('${safeDisc}', '${safeAssunto}')" title="Editar"><i class="ph ph-pencil-simple"></i></button>
+                        <button class="icon-action-btn btn-trash" onclick="removeAssunto('${safeDisc}', '${safeAssunto}')" title="Remover"><i class="ph ph-trash"></i></button>
+                    </div>
+                </li>`;
+            };
+
+            // Renderiza os Grupos (Aulas)
+            for (const [group, items] of Object.entries(groups)) {
+                assuntosHtml += `<div style="font-weight: 600; color: var(--primary-color); padding: 12px 0 6px 0; border-bottom: 1px solid var(--border-color); margin-bottom: 5px;"><i class="ph ph-folder-open"></i> ${group}</div>`;
+                items.forEach(item => assuntosHtml += renderItem(item, true));
+            }
+            // Renderiza itens soltos
+            ungrouped.forEach(item => assuntosHtml += renderItem(item, false));
+
+        } else {
+            // Renderização Padrão (Sem grupos)
+            assuntos.forEach(a => {
+                const isConcluido = concluidos.some(c => c.assunto === a);
+                const safeDisc = escapeQuotes(d.nome); const safeAssunto = escapeQuotes(a);
+                assuntosHtml += `<li class="assunto-item ${isConcluido ? 'studied' : ''}">
+                    <div class="assunto-content">${a}</div>
+                    <div class="assunto-actions">
+                        <button class="icon-action-btn btn-check-manual ${isConcluido ? 'active' : ''}" onclick="toggleAssuntoConcluido('${safeDisc}', '${safeAssunto}')" title="Marcar como concluído">
+                            <i class="ph ph-check-circle"></i>
+                        </button>
+                        <button class="icon-action-btn" style="color:var(--primary-color)" onclick="openRegistroModal('${safeDisc}', '${safeAssunto}', true)" title="Registrar Estudo neste assunto">
+                            <i class="ph ph-book-open"></i>
+                        </button>
+                        <button class="icon-action-btn" style="color:var(--text-light)" onclick="editAssunto('${safeDisc}', '${safeAssunto}')" title="Editar nome do assunto">
+                            <i class="ph ph-pencil-simple"></i>
+                        </button>
+                        <button class="icon-action-btn btn-trash" onclick="removeAssunto('${safeDisc}', '${safeAssunto}')" title="Remover assunto">
+                            <i class="ph ph-trash"></i>
+                        </button>
+                    </div>
+                </li>`;
+            });
+        }
+        
         assuntosHtml += '</ul>';
 
         html += `<div class="disciplina-item">

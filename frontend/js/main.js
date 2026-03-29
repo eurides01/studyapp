@@ -7,7 +7,6 @@ import { saveEditedCard, renderScheduledCards, startFlashcardsStudy, renderFlash
 import { generatePDF, renderEstatisticas } from './stats.js';
 
 // === GARANTIA DE ESCOPO GLOBAL ===
-// Torna as funções acessíveis para os botões com "onclick" no HTML (Aba de Estudos e Flashcards)
 window.toggleAssuntoConcluido = toggleAssuntoConcluido;
 window.removeAssunto = removeAssunto;
 window.removeDisciplina = removeDisciplina;
@@ -169,20 +168,25 @@ document.addEventListener('DOMContentLoaded', () => {
 
     document.getElementById('btn-process-trilha')?.addEventListener('click', () => {
         const edital = getCurrentEdital(); if(!edital) return;
-        const csv = document.getElementById('trilha-csv-input').value; if(!csv.trim()) return alert('Cole o CSV da trilha.');
+        const csv = document.getElementById('trilha-csv-input').value; if(!csv.trim()) return alert('Cole os conteúdos separados por ponto e vírgula.');
         const lines = csv.split('\n'); let added = 0;
         lines.forEach(line => {
             const parts = line.split(';');
-            if(parts.length >= 4) {
-                const taskNum = parts[1].trim(); const discName = parts[2].trim(); const assunto = parts.slice(3).join(';').trim();
-                const formatAssunto = `T${taskNum} - ${assunto}`;
+            if(parts.length >= 3) {
+                const discName = parts[0].trim(); 
+                const aulaName = parts[1].trim(); 
+                const assunto = parts.slice(2).join(';').trim();
+                
+                // Formata internamente como "Aula 01 - Assunto" para manter a integridade do banco
+                const formatAssunto = `${aulaName} - ${assunto}`;
+                
                 let d = edital.disciplinas.find(x => x.nome.toLowerCase() === discName.toLowerCase());
                 if(!d) { d = { nome: discName, assuntos: [] }; edital.disciplinas.push(d); }
                 if(!d.assuntos.includes(formatAssunto)) { d.assuntos.push(formatAssunto); added++; }
             }
         });
-        if(added > 0) { apiSaveData(db); renderDisciplinas(); alert(`${added} tarefas processadas com sucesso!`); }
-        else alert('Nenhuma tarefa nova adicionada.');
+        if(added > 0) { apiSaveData(db); renderDisciplinas(); alert(`${added} conteúdos processados com sucesso!`); }
+        else alert('Nenhum conteúdo novo adicionado.');
         document.getElementById('modal-backdrop').classList.remove('active'); document.getElementById('import-trilha-modal').classList.remove('active');
     });
 
@@ -297,11 +301,8 @@ document.addEventListener('DOMContentLoaded', () => {
         renderFlashcardsDashboard();
     });
 
-    // -----> EVENTO CORRIGIDO: Virar o Card (Flipping) sem interferir nos botões
     document.getElementById('fc-container')?.addEventListener('click', function(e) {
         if (document.getElementById('fc-front-text').classList.contains('fc-waiting')) return;
-
-        // CORREÇÃO: Ignora qualquer clique que aconteça dentro da área dos botões
         if (e.target.closest('.fc-actions')) return;
 
         this.classList.toggle('flipped');
@@ -324,7 +325,6 @@ document.addEventListener('DOMContentLoaded', () => {
         document.body.dataset.theme=t; localStorage.setItem('studyAppTheme', t);
     });
 
-    // Fecha Modais
     document.querySelectorAll('.modal-close-btn').forEach(b => b.addEventListener('click', () => { 
         if (b.id === 'btn-close-edit-modal') return; 
         document.getElementById('modal-backdrop').classList.remove('active'); document.querySelectorAll('.modal').forEach(m => m.classList.remove('active')); 

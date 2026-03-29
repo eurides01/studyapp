@@ -80,7 +80,8 @@ export const diffInDays = (date1Str, date2Str) => {
 
 export const getTaskNumber = (str) => {
     if (!str) return 999999;
-    const match = str.match(/^T(\d+)/i); 
+    // Captura "Aula 1", "Aula 01" ou o antigo "T01"
+    const match = str.match(/(?:Aula|T)\s*(\d+)/i); 
     return match ? parseInt(match[1]) : 999999;
 };
 
