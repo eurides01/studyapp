@@ -267,9 +267,11 @@ export const renderDisciplinas = () => {
         assuntosHtml += '</ul>';
 
         html += `<div class="disciplina-item">
-            <div style="display:flex; justify-content:space-between; align-items:center;">
-                <h4 style="margin:0;">${d.nome}</h4>
-                <div style="display:flex; gap: 5px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; cursor: pointer; user-select: none;" onclick="toggleDisciplinaContent(${index})">
+                <h4 style="margin:0; display:flex; align-items:center; gap:8px;">
+                    <i class="ph ph-caret-right" id="icon-disc-${index}"></i> ${d.nome}
+                </h4>
+                <div style="display:flex; gap: 5px;" onclick="event.stopPropagation()">
                     <button class="btn-secondary btn-sm" onclick="editDisciplina('${escapeQuotes(d.nome)}')"><i class="ph ph-pencil-simple"></i> Editar</button>
                     <button class="btn-danger btn-sm" onclick="removeDisciplina('${escapeQuotes(d.nome)}')"><i class="ph ph-trash"></i> Remover</button>
                 </div>
@@ -278,10 +280,13 @@ export const renderDisciplinas = () => {
                 <span>Progresso</span><strong style="color:var(--primary-color)">${perc}% (${concluidos.length}/${assuntos.length})</strong>
             </div>
             <div class="progress-bar-bg"><div style="width: ${perc}%; height: 100%; background: var(--primary-color);"></div></div>
-            ${assuntosHtml}
-            <div style="margin-top:15px; display:flex; gap:10px;">
-                <input type="text" id="new-assunto-input-${index}" placeholder="Novo assunto..." style="flex:1;">
-                <button class="btn-secondary" onclick="addAssuntoRapido('${escapeQuotes(d.nome)}', ${index})"><i class="ph ph-plus"></i> Add</button>
+            
+            <div id="content-disc-${index}" style="display: none; margin-top: 15px; animation: fadeIn 0.3s ease-out;">
+                ${assuntosHtml}
+                <div style="margin-top:15px; display:flex; gap:10px;">
+                    <input type="text" id="new-assunto-input-${index}" placeholder="Novo assunto..." style="flex:1;">
+                    <button class="btn-secondary" onclick="addAssuntoRapido('${escapeQuotes(d.nome)}', ${index})"><i class="ph ph-plus"></i> Add</button>
+                </div>
             </div>
         </div>`;
     });
@@ -565,9 +570,24 @@ export const salvarRevisao = async (btn) => {
     } finally { btn.textContent = originalText; btn.disabled = false; setIsSaving(false); }
 };
 
+export const toggleDisciplinaContent = (index) => {
+    const content = document.getElementById(`content-disc-${index}`);
+    const icon = document.getElementById(`icon-disc-${index}`);
+    if (!content) return;
+    
+    if (content.style.display === 'none') {
+        content.style.display = 'block';
+        if (icon) icon.classList.replace('ph-caret-right', 'ph-caret-down');
+    } else {
+        content.style.display = 'none';
+        if (icon) icon.classList.replace('ph-caret-down', 'ph-caret-right');
+    }
+};
+
 window.openRegistroModal = openRegistroModal;
 window.openRevisaoModal = openRevisaoModal;
 window.toggleAssuntoConcluido = toggleAssuntoConcluido;
 window.removeAssunto = removeAssunto;
 window.removeDisciplina = removeDisciplina;
 window.addAssuntoRapido = addAssuntoRapido;
+window.toggleDisciplinaContent = toggleDisciplinaContent;

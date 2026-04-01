@@ -2,7 +2,7 @@
 import { authToken, currentUser, currentEditalId, db, setAuthToken, setCurrentUser, setCurrentEditalId, setDb, getCurrentEdital, getTodayDate } from './state.js';
 import { API_URL, apiAuthRequest, apiFetchData, apiSaveData } from './api.js';
 import { initTimerDOM } from './timer.js';
-import { openRegistroModal, openRevisaoModal, salvarRegistro, salvarRevisao, showPage, updateEditalUI, renderHomePage, renderCicloConfig, renderDisciplinas, toggleAssuntoConcluido, removeAssunto, removeDisciplina, addAssuntoRapido, editDisciplina, editAssunto } from './ui.js';
+import { openRegistroModal, openRevisaoModal, salvarRegistro, salvarRevisao, showPage, updateEditalUI, renderHomePage, renderCicloConfig, renderDisciplinas, toggleAssuntoConcluido, removeAssunto, removeDisciplina, addAssuntoRapido, editDisciplina, editAssunto, toggleDisciplinaContent } from './ui.js';
 import { saveEditedCard, renderScheduledCards, startFlashcardsStudy, renderFlashcardsDashboard, finishFlashcardSession, rateFlashcard, openManageCards, deleteSingleCard, deleteDeck, openEditCard } from './flashcards.js';
 import { generatePDF, renderEstatisticas } from './stats.js';
 
@@ -21,6 +21,7 @@ window.openEditCard = openEditCard;
 window.startFlashcardsStudy = startFlashcardsStudy;
 window.editDisciplina = editDisciplina;
 window.editAssunto = editAssunto;
+window.toggleDisciplinaContent = toggleDisciplinaContent;
 
 document.addEventListener('DOMContentLoaded', () => {
 
