@@ -211,9 +211,13 @@ const renderHistorico = (estudos, dataInicio, dataFim) => {
             const total = e.revisoes.length;
             const concluidas = e.revisoes.filter(r => r && r.concluida).length;
             const statusColor = concluidas === total ? 'var(--success-color)' : 'var(--warning-color)';
+            
+            // NOVO: Labels alinhados à estratégia de 1/3/7/15/30+
+            const revLabels = ['1d', '3d', '7d', '15d', '30d'];
+            
             const revDetails = e.revisoes.map((r, i) => {
                 if (!r) return '';
-                const label = i === 0 ? '1d' : i === 1 ? '7d' : '30d';
+                const label = i < 5 ? revLabels[i] : '+30d';
                 const icon = r.concluida ? '✓' : '○';
                 const style = r.concluida ? 'color:var(--success-color); font-weight:bold;' : 'color:var(--text-light);';
                 return `<span style="${style} margin-right:5px; font-size:0.75rem;">[${icon}] ${label}</span>`;

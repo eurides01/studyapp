@@ -201,7 +201,6 @@ export const renderDisciplinas = () => {
             const groups = {};
             const ungrouped = [];
             
-            // Separa os assuntos que possuem o formato "Grupo - Conteúdo"
             assuntos.forEach(a => {
                 const firstDash = a.indexOf(' - ');
                 if (firstDash > 0) {
@@ -217,7 +216,6 @@ export const renderDisciplinas = () => {
             const renderItem = (item, isGrouped) => {
                 const isConcluido = concluidos.some(c => c.assunto === item.original);
                 const safeDisc = escapeQuotes(d.nome); const safeAssunto = escapeQuotes(item.original);
-                // Adiciona um espaçamento (indentação) se pertencer a uma aula
                 const stylePadding = isGrouped ? 'padding-left: 20px; border-left: 2px solid var(--border-color); margin-left: 8px;' : '';
                 
                 return `<li class="assunto-item ${isConcluido ? 'studied' : ''}" style="${stylePadding}">
@@ -231,16 +229,13 @@ export const renderDisciplinas = () => {
                 </li>`;
             };
 
-            // Renderiza os Grupos (Aulas)
             for (const [group, items] of Object.entries(groups)) {
                 assuntosHtml += `<div style="font-weight: 600; color: var(--primary-color); padding: 12px 0 6px 0; border-bottom: 1px solid var(--border-color); margin-bottom: 5px;"><i class="ph ph-folder-open"></i> ${group}</div>`;
                 items.forEach(item => assuntosHtml += renderItem(item, true));
             }
-            // Renderiza itens soltos
             ungrouped.forEach(item => assuntosHtml += renderItem(item, false));
 
         } else {
-            // Renderização Padrão (Sem grupos)
             assuntos.forEach(a => {
                 const isConcluido = concluidos.some(c => c.assunto === a);
                 const safeDisc = escapeQuotes(d.nome); const safeAssunto = escapeQuotes(a);
@@ -457,7 +452,12 @@ const renderRevisoesPendentes = (edital) => {
             if(!r || !r.data || r.data === 'SEM_DATA') return;
             if(!r.concluida && (r.data.includes('T') ? r.data.split('T')[0] : r.data) <= today) {
                 const infoIntervalo = e.intervalo ? `<div style="font-size:0.8rem; color:var(--primary-color); margin-top:2px;"><i class="ph ph-bookmark-simple"></i> ${e.intervalo}</div>` : '';
-                html += `<div style="display:flex; justify-content:space-between; padding:10px; border-bottom:1px solid var(--border-color); align-items:center;"><div><strong>${e.disciplina}</strong><br><small style="color:var(--text-light)">${e.assunto} (${idx===0?'1d':idx===1?'7d':'30d'})</small>${infoIntervalo}</div><button class="btn-success btn-sm" onclick="openRevisaoModal('${e.id}', ${idx})"><i class="ph ph-check"></i></button></div>`;
+                
+                // Aplicando as labels táticas para as revisões pendentes
+                const revLabels = ['1d (Flashcards)', '3d (Leitura Ativa)', '7d (Questões)', '15d (Manutenção)', '30d (Manutenção)'];
+                const rLabel = idx < 5 ? revLabels[idx] : `+30d (Repetição)`;
+
+                html += `<div style="display:flex; justify-content:space-between; padding:10px; border-bottom:1px solid var(--border-color); align-items:center;"><div><strong>${e.disciplina}</strong><br><small style="color:var(--text-light)">${e.assunto} (${rLabel})</small>${infoIntervalo}</div><button class="btn-success btn-sm" onclick="openRevisaoModal('${e.id}', ${idx})"><i class="ph ph-check"></i></button></div>`;
             }
         });
     });
@@ -505,8 +505,17 @@ export const salvarRegistro = async (btn) => {
         
         if (totalA > totalQ) throw new Error("USER_ERROR:O número de acertos não pode ser maior que as questões.");
         
+        // NOVO: Array base das 5 revisões (1, 3, 7, 15, 30)
         let revisoesArray = [];
-        if (agendarRevisoes) revisoesArray = [{data: addDays(dataRegistro, 1), concluida: false},{data: addDays(dataRegistro, 7), concluida: false},{data: addDays(dataRegistro, 30), concluida: false}];
+        if (agendarRevisoes) {
+            revisoesArray = [
+                {data: addDays(dataRegistro, 1), concluida: false},
+                {data: addDays(dataRegistro, 3), concluida: false},
+                {data: addDays(dataRegistro, 7), concluida: false},
+                {data: addDays(dataRegistro, 15), concluida: false},
+                {data: addDays(dataRegistro, 30), concluida: false}
+            ];
+        }
 
         const novoEstudo = { id: Date.now().toString(), editalId: edital.id, data: dataRegistro, disciplina: disc, assunto: assuntoFinal, intervalo: intervaloStr, total: totalQ, acertos: totalA, percentual: totalQ > 0 ? (totalA/totalQ)*100 : 0, tempo: totalT, revisoes: revisoesArray }; 
         let novoTempo = null;
@@ -549,6 +558,15 @@ export const salvarRevisao = async (btn) => {
         const originalStudy = db.estudos.find(x => x.id === id); if (!originalStudy) throw new Error("USER_ERROR:Estudo original não encontrado.");
 
         originalStudy.revisoes[idx].concluida = true;
+        
+        // NOVO: Gatilho automático para manter as repetições a cada 30 dias após a primeira do ciclo
+        if (idx >= 4 && idx === originalStudy.revisoes.length - 1) {
+            originalStudy.revisoes.push({
+                data: addDays(getTodayDate(), 30),
+                concluida: false
+            });
+        }
+
         const editalIdRef = originalStudy.editalId || currentEditalId;
         let novoEstudoRev = null; let novoTempoRev = null;
 
