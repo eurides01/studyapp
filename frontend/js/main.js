@@ -32,6 +32,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if(document.getElementById('mobile-menu-btn')) document.getElementById('mobile-menu-btn').style.display = ''; 
             if(document.querySelector('.container')) document.querySelector('.container').style.display = 'block';
             
+            // Exibe o botão do painel Admin apenas se o usuário for administrador
             const isAdmin = (currentUser && currentUser.role === 'admin');
             const btnAdmin = document.getElementById('btn-admin-panel');
             if (btnAdmin) btnAdmin.style.display = isAdmin ? 'flex' : 'none';
@@ -353,6 +354,91 @@ document.addEventListener('DOMContentLoaded', () => {
                 document.getElementById('modal-backdrop').classList.remove('active'); document.getElementById('profile-modal').classList.remove('active');
             } else alert("Erro: " + data.msg);
         } catch(e) { alert("Erro de conexão"); }
+    });
+
+    // ==========================================
+    // MODO ADMINISTRADOR (REQUISIÇÕES BACKEND)
+    // ==========================================
+    
+    const loadAdminUsers = async () => {
+        try {
+            const res = await fetch(`${API_URL}/admin/users`, {
+                headers: { 'x-auth-token': authToken }
+            });
+            const data = await res.json();
+            if (res.ok) {
+                const tbody = document.getElementById('admin-users-list');
+                tbody.innerHTML = data.users.map(u => `
+                    <tr>
+                        <td>${u.name}</td>
+                        <td>${u.email}</td>
+                        <td>
+                            <button class="btn-danger btn-sm" onclick="deleteUser('${u._id}')"><i class="ph ph-trash"></i></button>
+                        </td>
+                    </tr>
+                `).join('');
+            } else {
+                alert("Erro ao carregar usuários: " + data.msg);
+            }
+        } catch(e) {
+            console.error(e);
+            alert("Erro de conexão ao carregar lista de usuários.");
+        }
+    };
+
+    window.deleteUser = async (userId) => {
+        if(!confirm("Tem certeza que deseja excluir este usuário e TODOS os seus dados? Esta ação é irreversível.")) return;
+        try {
+            const res = await fetch(`${API_URL}/admin/user/${userId}`, {
+                method: 'DELETE',
+                headers: { 'x-auth-token': authToken }
+            });
+            if (res.ok) {
+                alert("Usuário excluído com sucesso.");
+                loadAdminUsers();
+            } else {
+                const data = await res.json();
+                alert("Erro ao excluir: " + data.msg);
+            }
+        } catch(e) {
+            console.error(e);
+            alert("Erro de conexão ao excluir usuário.");
+        }
+    };
+
+    document.getElementById('btn-admin-panel')?.addEventListener('click', () => {
+        document.getElementById('modal-backdrop').classList.add('active');
+        document.getElementById('admin-modal').classList.add('active');
+        loadAdminUsers();
+    });
+
+    document.getElementById('btn-admin-create-user')?.addEventListener('click', async () => {
+        const name = document.getElementById('admin-new-name').value;
+        const email = document.getElementById('admin-new-email').value;
+        const password = document.getElementById('admin-new-pwd').value;
+
+        if(!name || !email || !password) return alert("Preencha todos os campos para criar o usuário!");
+
+        try {
+            const res = await fetch(`${API_URL}/admin/create-user`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'x-auth-token': authToken },
+                body: JSON.stringify({ name, email, password })
+            });
+            const data = await res.json();
+            if(res.ok) {
+                alert("Usuário criado com sucesso!");
+                document.getElementById('admin-new-name').value = '';
+                document.getElementById('admin-new-email').value = '';
+                document.getElementById('admin-new-pwd').value = '';
+                loadAdminUsers();
+            } else {
+                alert("Erro: " + data.msg);
+            }
+        } catch(e) {
+            console.error(e);
+            alert("Erro de conexão ao criar usuário.");
+        }
     });
 
     initTimerDOM(openRegistroModal);
